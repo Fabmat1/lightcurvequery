@@ -4,9 +4,9 @@
 __pycache__
 other_plots
 other_scripts
-lcplots
+lcplots/*
 mastDownload
-pgramplots
+pgramplots/*
 rv_standards
 rvplots
 *.csv
@@ -14,3 +14,5 @@ rvplots
 *.txt
 *.tsv
 *.zip
+!pgramplots/.gitkeep
+!lcplots/.gitkeep

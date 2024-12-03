@@ -10,6 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import median_filter
 from scipy.optimize import curve_fit
 from scipy.stats import norm
+from astropy.timeseries import LombScargle
 
 from models import Star
 import ctypes
@@ -151,8 +152,7 @@ def genOptimalPeriodogramSamples(t, sample_factor, forced_min_p, forced_max_p, f
 #     return result_array, periods
 
 
-from astropy.timeseries import LombScargle
-import numpy as np
+
 
 def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
     """
@@ -194,12 +194,13 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
         frequencies = None
 
     # Calculate Lomb-Scargle periodogram
-    ls = LombScargle(t, y, dy)
-    power = ls.power(frequencies)
+    if frequencies is None:
+        frequencies, power = LombScargle(t, y, dy).autopower()
+    else:
+        ls = LombScargle(t, y, dy).autopower()
+        power = ls.power(frequencies)
 
     # Convert frequencies to periods
-    if frequencies is None:
-        frequencies = ls.frequency
     periods = 1.0 / frequencies
 
     return power, periods

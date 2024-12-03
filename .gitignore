@@ -16,3 +16,4 @@ rvplots
 *.zip
 !pgramplots/.gitkeep
 !lcplots/.gitkeep
+!requirements.txt

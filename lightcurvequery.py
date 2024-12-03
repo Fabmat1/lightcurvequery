@@ -596,7 +596,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
     if forced_period is not None:
         star.period = forced_period
-    plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=False)
+    plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=True)
 
 
 if __name__ == "__main__":

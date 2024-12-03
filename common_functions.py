@@ -40,7 +40,10 @@ elif os.name == 'posix':
         DOC_PATH = "/home/fabian/Documents"
 
 matplotlib.use("QtAgg")
-res_table = pd.read_csv(RVVD_PATH + f"/result_parameters.csv")
+try:
+    res_table = pd.read_csv(RVVD_PATH + f"/result_parameters.csv")
+except FileNotFoundError:
+    res_table = None
 
 LAMOST_PATTERNS = [
     r"med-\d+-[A-Za-z0-9]+_sp\d+-\d+_mjd\.txt",

@@ -186,26 +186,18 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
         # Use default frequency range
         min_f, max_f = None, None
 
-    # Create frequency grid
-    if N is not None:
-        frequencies = np.linspace(min_f, max_f, N)
-    else:
-        # Use automatic frequency determination by LombScargle
-        frequencies = None
+    f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
 
-    # Calculate Lomb-Scargle periodogram
-    if frequencies is None:
-        frequencies, power = LombScargle(t, y, dy).autopower()
-    else:
-        ls = LombScargle(t, y, dy).autopower()
-        power = ls.power(frequencies)
+    # Create frequency grid
+    frequencies = np.linspace(f0, f0+df*Nf, Nf)
+
+    ls = LombScargle(t, y, dy).autopower()
+    power = ls.power(frequencies)
 
     # Convert frequencies to periods
     periods = 1.0 / frequencies
 
     return power, periods
-
-
 
 
 def alias_key_wrapper(pgram_x, pgram_y):

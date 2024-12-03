@@ -101,54 +101,110 @@ def genOptimalPeriodogramSamples(t, sample_factor, forced_min_p, forced_max_p, f
     result.append(int(Npoints))
     return result
 
+#
+# def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
+#     # Load the shared library
+#     lib = ctypes.CDLL("./libgls_shared.so")  # Use .dll for Windows
+#
+#     # Set up the return type and argument types for the function
+#     lib.gls_fast_extern.restype = ctypes.POINTER(ctypes.c_double)
+#     lib.gls_fast_extern.argtypes = [
+#         ctypes.POINTER(ctypes.c_double),  # t_pointer
+#         ctypes.c_size_t,  # t_size
+#         ctypes.POINTER(ctypes.c_double),  # y_pointer
+#         ctypes.c_size_t,  # y_size
+#         ctypes.POINTER(ctypes.c_double),  # dy_pointer
+#         ctypes.c_size_t,  # dy_size
+#         ctypes.c_double,  # f0
+#         ctypes.c_double,  # df
+#         ctypes.c_int,  # Nf
+#         ctypes.c_int,  # normalization (as C string)
+#         ctypes.c_bool,  # fit_mean
+#         ctypes.c_bool,  # center_data
+#         ctypes.c_int  # nterms
+#     ]
+#
+#     # Convert NumPy arrays to ctypes pointers
+#     t_pointer = t.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+#     y_pointer = y.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+#     dy_pointer = dy.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+#     f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
+#
+#     print(f"Calculating periodogram from {1 / (f0 + df * Nf)} to {1 / f0} using {Nf} samples...")
+#     fit_mean = True
+#     center_data = True
+#     nterms = 1
+#
+#     result_pointer = lib.gls_fast_extern(
+#         t_pointer, len(t),
+#         y_pointer, len(y),
+#         dy_pointer, len(dy),
+#         f0, df, Nf,
+#         1, fit_mean, center_data, nterms
+#     )
+#
+#     result_array = np.ctypeslib.as_array(result_pointer, shape=(Nf,))
+#
+#     freqs = np.linspace(f0, f0 + df * Nf, Nf)
+#     periods = 1 / freqs
+#
+#     return result_array, periods
+
+
+from astropy.timeseries import LombScargle
+import numpy as np
 
 def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
-    # Load the shared library
-    lib = ctypes.CDLL("./libgls_shared.so")  # Use .dll for Windows
+    """
+    Calculate the Lomb-Scargle periodogram.
 
-    # Set up the return type and argument types for the function
-    lib.gls_fast_extern.restype = ctypes.POINTER(ctypes.c_double)
-    lib.gls_fast_extern.argtypes = [
-        ctypes.POINTER(ctypes.c_double),  # t_pointer
-        ctypes.c_size_t,  # t_size
-        ctypes.POINTER(ctypes.c_double),  # y_pointer
-        ctypes.c_size_t,  # y_size
-        ctypes.POINTER(ctypes.c_double),  # dy_pointer
-        ctypes.c_size_t,  # dy_size
-        ctypes.c_double,  # f0
-        ctypes.c_double,  # df
-        ctypes.c_int,  # Nf
-        ctypes.c_int,  # normalization (as C string)
-        ctypes.c_bool,  # fit_mean
-        ctypes.c_bool,  # center_data
-        ctypes.c_int  # nterms
-    ]
+    Parameters:
+    t : array-like
+        Time values.
+    y : array-like
+        Flux values.
+    dy : array-like
+        Flux errors.
+    min_p : float, optional
+        Minimum period to search.
+    max_p : float, optional
+        Maximum period to search.
+    N : int, optional
+        Number of frequencies to evaluate.
 
-    # Convert NumPy arrays to ctypes pointers
-    t_pointer = t.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-    y_pointer = y.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-    dy_pointer = dy.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-    f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
+    Returns:
+    result_array : array-like
+        Power values of the periodogram.
+    periods : array-like
+        Corresponding periods.
+    """
+    # Convert periods to frequencies
+    if min_p is not None and max_p is not None:
+        min_f = 1.0 / max_p
+        max_f = 1.0 / min_p
+    else:
+        # Use default frequency range
+        min_f, max_f = None, None
 
-    print(f"Calculating periodogram from {1 / (f0 + df * Nf)} to {1 / f0} using {Nf} samples...")
-    fit_mean = True
-    center_data = True
-    nterms = 1
+    # Create frequency grid
+    if N is not None:
+        frequencies = np.linspace(min_f, max_f, N)
+    else:
+        # Use automatic frequency determination by LombScargle
+        frequencies = None
 
-    result_pointer = lib.gls_fast_extern(
-        t_pointer, len(t),
-        y_pointer, len(y),
-        dy_pointer, len(dy),
-        f0, df, Nf,
-        1, fit_mean, center_data, nterms
-    )
+    # Calculate Lomb-Scargle periodogram
+    ls = LombScargle(t, y, dy)
+    power = ls.power(frequencies)
 
-    result_array = np.ctypeslib.as_array(result_pointer, shape=(Nf,))
+    # Convert frequencies to periods
+    if frequencies is None:
+        frequencies = ls.frequency
+    periods = 1.0 / frequencies
 
-    freqs = np.linspace(f0, f0 + df * Nf, Nf)
-    periods = 1 / freqs
+    return power, periods
 
-    return result_array, periods
+
 
 
 def alias_key_wrapper(pgram_x, pgram_y):

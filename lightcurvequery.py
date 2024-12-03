@@ -432,10 +432,18 @@ def gettesslc(gaia_id):
         flux_errors.append(ef2)
         crowdsaps.append(cs2)
 
-    times = np.concatenate(times)
-    flux = np.concatenate(fluxes)
-    flux_error = np.concatenate(flux_errors)
-    print(f"[{gaia_id}] Got {len(times)} datapoints")
+    try:
+        times = np.concatenate(times)
+        flux = np.concatenate(fluxes)
+        flux_error = np.concatenate(flux_errors)
+        print(f"[{gaia_id}] Got {len(times)} datapoints")
+    except ValueError:
+        if not os.path.isdir(f"lightcurves/{gaia_id}"):
+            os.mkdir(f"lightcurves/{gaia_id}")
+        with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
+            file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+        return
+
 
     if len(times) > 0:
         mask = np.logical_and(np.logical_and(~np.isnan(times), ~np.isnan(flux)), ~np.isnan(flux_error))

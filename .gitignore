@@ -1,0 +1,16 @@
+.venv
+.idea
+.stfolder
+__pycache__
+other_plots
+other_scripts
+lcplots
+mastDownload
+pgramplots
+rv_standards
+rvplots
+*.csv
+*.dat
+*.txt
+*.tsv
+*.zip

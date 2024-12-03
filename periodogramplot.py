@@ -191,7 +191,7 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
     # Create frequency grid
     frequencies = np.linspace(f0, f0+df*Nf, Nf)
 
-    ls = LombScargle(t, y, dy).autopower()
+    ls = LombScargle(t, y, dy)
     power = ls.power(frequencies)
 
     # Convert frequencies to periods

@@ -511,7 +511,7 @@ def really_load_all_stars(cache_path="stars_cache.pkl"):
 
     stars = []
     for i, dir in enumerate(os.listdir(RVVD_PATH + "/output")):
-        print(f"{i}/{len(os.listdir(RVVD_PATH + "/output"))}")
+        print(f"{i}/{len(os.listdir(RVVD_PATH + '/output'))}")
         if dir not in non_bhbs:
             continue
         star = load_star(int(dir))

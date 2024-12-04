@@ -17,7 +17,7 @@ ADD_RV = False
 DOFIT = False
 
 OVERWRITE_P = 0.670867509035588
-bandcolors = ["darkred", "navy", "darkgreen", "violet"]
+bandcolors = ["darkred", "navy", "darkgreen", "violet", "magenta", "gold", "salmon", "brown", "black", "lime", "red"]
 IGNORE_SOURCES = []
 IGNOREZI = True
 IGNOREH = True

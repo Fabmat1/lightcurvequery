@@ -503,7 +503,7 @@ def getnone(gaia_id):
     pass
 
 
-def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=False, skip_gaia=False, nsamp=None, minp=0.05, maxp=50, coord=None, forced_period=None):
+def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=False, skip_gaia=False, nsamp=None, minp=0.05, maxp=50, coord=None, forced_period=None, no_whitening=False, binning=True):
     """Fetch and plot lightcurves for a given Gaia ID."""
     base_dir = f"./lightcurves/{gaia_id}"
     ensure_directory_exists(base_dir)
@@ -565,7 +565,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
             star.lightcurves[telescope] = lc
 
-    plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp)
+    plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp, whitening=~no_whitening)
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):
@@ -596,7 +596,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
     if forced_period is not None:
         star.period = forced_period
-    plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=True)
+    plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=binning)
 
 
 if __name__ == "__main__":
@@ -620,7 +620,7 @@ Available commands:
 --min-p <period [d]> Define minimum period for periodogram (Default = 0.05d))
 --max-p <period [d]> Define maximum period for periodogram (Default = 50d)
 --force-nsamp <int> Force define number of samples used in periodogram
-
+--force-period <period [d]> Forcibly define the period of the system
 """)
             sys.exit(0)
         else:
@@ -657,6 +657,10 @@ Available commands:
     min_p = 0.05
     max_p = 50
     Nsamp = None
+
+    no_whitening = False
+    binning = True
+
     for i, arg in enumerate(sys.argv[2:]):
         if "-" in arg:
             if arg == "--skip-tess":
@@ -673,6 +677,10 @@ Available commands:
                 max_p = float(sys.argv[2:][i+1])
             elif arg == "--force-nsamp":
                 Nsamp = float(sys.argv[2:][i+1])
+            elif arg == "--no-whitening":
+                no_whitening = True
+            elif arg == "--no-binning":
+                binning = False
             elif arg == "--force-period":
                 period = float(sys.argv[2:][i+1])
                 print(f"Period: {period}")
@@ -689,7 +697,8 @@ Available commands:
 --min-p <period [d]> Define minimum period for periodogram (Default = 0.05d))
 --max-p <period [d]> Define maximum period for periodogram (Default = 50d)
 --force-nsamp <int> Force define number of samples used in periodogram
+--force-period <period [d]> Forcibly define the period of the system
 """)
                 sys.exit(0)
 
-    process_lightcurves(gaia_id, skip_tess, skip_ztf, skip_atlas, skip_gaia, nsamp=Nsamp, minp=min_p, maxp=max_p, coord=coord, forced_period=period)
+    process_lightcurves(gaia_id, skip_tess, skip_ztf, skip_atlas, skip_gaia, nsamp=Nsamp, minp=min_p, maxp=max_p, coord=coord, forced_period=period, no_whitening=no_whitening, binning=binning)

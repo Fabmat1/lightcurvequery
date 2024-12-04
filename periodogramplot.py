@@ -359,7 +359,7 @@ def sigma_percentage(sigma):
     return norm.cdf(sigma) - norm.cdf(-sigma)
 
 
-def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_given=MIN_P, max_p_given=MAX_P, title_fontsize=12, label_fontsize=12, legend_fontsize=8, tick_fontsize=10):
+def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_given=MIN_P, max_p_given=MAX_P, whitening=True, title_fontsize=12, label_fontsize=12, legend_fontsize=8, tick_fontsize=10):
     try:
         solved_table = pd.read_csv("solved_orbit_tracker.txt")
         plo = solved_table.loc[star.gaia_id == solved_table["gaia_id"]]["p_window_low"].iloc[0]
@@ -390,7 +390,7 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
         isfirstorlast = i == 0 or i == len(star.lightcurves) + 2 - len(nignored)
         axs.append(fig.add_subplot(len(star.lightcurves) + 3 - len(nignored), 1, i + 1, sharex=axs[-1] if not isfirstorlast else None))
 
-    common_periods, common_power = calc_pgrams(star, ignore_source, min_p=min_p_given, max_p=max_p_given, Nsamp=nsamp_given, axs=axs)
+    common_periods, common_power = calc_pgrams(star, ignore_source, min_p=min_p_given, max_p=max_p_given, Nsamp=nsamp_given, nocorr=~whitening, axs=axs)
 
     # plt.ylabel("Relative Power [arb. Unit]", fontsize=label_fontsize)
     # plt.xlabel("Period [d]", fontsize=label_fontsize)

@@ -617,9 +617,12 @@ Available commands:
 --skip-atlas    excludes ATLAS data
 --skip-gaia     excludes Gaia data
 
---min-p <period [d]> Define minimum period for periodogram (Default = 0.05d))
---max-p <period [d]> Define maximum period for periodogram (Default = 50d)
---force-nsamp <int> Force define number of samples used in periodogram
+--no-binning    Disable binning
+--no-whitening  Disable pre-whitening
+
+--min-p <period [d]>        Define minimum period for periodogram (Default = 0.05d))
+--max-p <period [d]>        Define maximum period for periodogram (Default = 50d)
+--force-nsamp <int>         Force define number of samples used in periodogram
 --force-period <period [d]> Forcibly define the period of the system
 """)
             sys.exit(0)
@@ -694,9 +697,12 @@ Available commands:
 --skip-atlas    excludes ATLAS data
 --skip-gaia     excludes Gaia data
 
---min-p <period [d]> Define minimum period for periodogram (Default = 0.05d))
---max-p <period [d]> Define maximum period for periodogram (Default = 50d)
---force-nsamp <int> Force define number of samples used in periodogram
+--no-binning    Disable binning
+--no-whitening  Disable pre-whitening
+
+--min-p <period [d]>        Define minimum period for periodogram (Default = 0.05d))
+--max-p <period [d]>        Define maximum period for periodogram (Default = 50d)
+--force-nsamp <int>         Force define number of samples used in periodogram
 --force-period <period [d]> Forcibly define the period of the system
 """)
                 sys.exit(0)

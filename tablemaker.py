@@ -43,7 +43,7 @@ def round_to_significant_digits(value, err):
         formatted_value = f"{rounded_value:.{decimal_places}f}"
 
         # Convert to float if the result has decimal places, else return as int
-        return float(formatted_value) if '.' in formatted_value else int(formatted_value)
+        return formatted_value if '.' in formatted_value else int(formatted_value)
 
     except ValueError:
         return value

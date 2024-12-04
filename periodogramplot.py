@@ -17,6 +17,7 @@ import ctypes
 
 from makervplot import sinusoid
 from common_functions import *
+from tablemaker import round_to_significant_digits
 
 fm.findSystemFonts(fontpaths=None, fontext='ttf')
 rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
@@ -26,7 +27,7 @@ ADD_RV = False
 MED_FILTER = False
 MED_SEGMENTS = 500
 IGNORE_SOURCES = ["GAIA"]
-MIN_P = 0.01
+MIN_P = 0.05
 MAX_P = 50
 NSAMP = None
 PLO = None
@@ -102,6 +103,7 @@ def genOptimalPeriodogramSamples(t, sample_factor, forced_min_p, forced_max_p, f
     result.append(int(Npoints))
     return result
 
+
 #
 # def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
 #     # Load the shared library
@@ -152,8 +154,6 @@ def genOptimalPeriodogramSamples(t, sample_factor, forced_min_p, forced_max_p, f
 #     return result_array, periods
 
 
-
-
 def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
     """
     Calculate the Lomb-Scargle periodogram.
@@ -189,7 +189,7 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
     f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
 
     # Create frequency grid
-    frequencies = np.linspace(f0, f0+df*Nf, Nf)
+    frequencies = np.linspace(f0, f0 + df * Nf, Nf)
 
     ls = LombScargle(t, y, dy)
     power = ls.power(frequencies)
@@ -204,28 +204,46 @@ def alias_key_wrapper(pgram_x, pgram_y):
     def alias_key(interval):
         mask = np.logical_and(pgram_x > interval[0], pgram_x < interval[1])
         return np.max(pgram_y[mask])
+
     return alias_key
 
 
 def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, plot=True, plot_as_bg=False, nocorr=False, axs=None):
     global atlas_aliases
     global ztf_aliases
+
+    common_periods = None
+    n_samp_periods = 0
+    if min_p is None or max_p is None or Nsamp is None:
+        for telescope in star.lightcurves.keys():
+            psamp = genOptimalPeriodogramSamples(star.lightcurves[telescope][0].to_numpy(), 20, MIN_P, MAX_P, NSAMP)
+            if psamp[-1] > n_samp_periods:
+                f0, df, Nf = psamp
+                freqs = np.linspace(f0, f0 + df * Nf, Nf)
+                common_periods = 1 / freqs
+    else:
+        common_periods = np.linspace(min_p, max_p, Nsamp)
+
+    common_power = np.ones_like(common_periods)
+
     if ADD_RV:
         print("Calculating RV Periodogram...")
         result_array, periods = fast_pgram(star.times, star.datapoints, star.datapoint_errors, min_p, max_p, Nsamp)
-        common_power = result_array
-        common_periods = periods
+
+        f = interp1d(periods, result_array, bounds_error=False, fill_value=0)
+        common_power *= f(common_periods)
+
         try:
-            onesig, twosig, threesig = false_alarm_level([1-0.682689, 1-0.954499, 1-0.997300],
-                                                         1/min_p,
+            onesig, twosig, threesig = false_alarm_level([1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
+                                                         1 / min_p,
                                                          star.times, star.datapoints, star.datapoint_errors,
                                                          "standard")
         except ValueError:
             try:
-                onesig = false_alarm_level([1-0.682689],
-                                                             1/min_p,
-                                                             star.times, star.datapoints, star.datapoint_errors,
-                                                             "standard")
+                onesig = false_alarm_level([1 - 0.682689],
+                                           1 / min_p,
+                                           star.times, star.datapoints, star.datapoint_errors,
+                                           "standard")
                 twosig, threesig = None, None
             except ValueError:
                 onesig, twosig, threesig = None, None, None
@@ -311,16 +329,16 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
                                                    min_p, max_p, Nsamp)
 
         f = interp1d(periods, result_array, bounds_error=False, fill_value=0)
-        if not ADD_RV and telescope == [k for k in star.lightcurves.keys() if k not in ignore_source][0]:
-            common_periods = periods
-            common_power = result_array
+        # if not ADD_RV and telescope == [k for k in star.lightcurves.keys() if k not in ignore_source][0]:
+        #     common_periods = periods
+        #     common_power = result_array
 
         common_power *= f(common_periods)
 
         if plot:
             if axs is not None:
                 onesig, twosig, threesig = false_alarm_level([1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
-                                                             1/min_p,
+                                                             1 / min_p,
                                                              star.lightcurves[telescope][0].to_numpy(),
                                                              star.lightcurves[telescope][1].to_numpy(),
                                                              star.lightcurves[telescope][2].to_numpy(),
@@ -370,7 +388,7 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
     axs = []
     for i in range(len(star.lightcurves) + 3 - len(nignored)):
         isfirstorlast = i == 0 or i == len(star.lightcurves) + 2 - len(nignored)
-        axs.append(fig.add_subplot(len(star.lightcurves) + 3 - len(nignored), 1, i+1, sharex=axs[-1] if not isfirstorlast else None))
+        axs.append(fig.add_subplot(len(star.lightcurves) + 3 - len(nignored), 1, i + 1, sharex=axs[-1] if not isfirstorlast else None))
 
     common_periods, common_power = calc_pgrams(star, ignore_source, min_p=min_p_given, max_p=max_p_given, Nsamp=nsamp_given, axs=axs)
 
@@ -392,12 +410,15 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
             if plo is not None:
                 ax.axvline(plo, color="darkgrey", linestyle="--")
                 ax.axvline(phi, color="darkgrey", linestyle="--")
+            else:
+                ax.axvline(common_periods[np.argmax(common_power)] * 0.999, color="darkgrey", linestyle="--")
+                ax.axvline(common_periods[np.argmax(common_power)] * 1.001, color="darkgrey", linestyle="--")
             ax.set_xscale("log")
             ax.set_xlim(common_periods[-1], common_periods[0])
         if i == len(axs) - 1:
             common_periods, common_power = calc_pgrams(star, ignore_source,
-                                                       plo if plo is not None else common_periods[-1], phi if phi is not None else common_periods[0],
-                                                       nsamp if nsamp is not None else NSAMP, plot=False, nocorr=True)
+                                                       plo if plo is not None else common_periods[np.argmax(common_power)] * 0.999, phi if phi is not None else common_periods[np.argmax(common_power)] * 1.001,
+                                                       nsamp if nsamp is not None else 10000, plot=False, nocorr=True)
 
             if MED_FILTER:
                 common_power = median_filter(common_power, size=len(common_power) // MED_SEGMENTS)
@@ -431,7 +452,7 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
             lower_id = np.where(lower_cumsum >= sp)[0][-1]
             lerr = lower_periods[lower_id]
 
-            print(f"{measured_p}+{herr - measured_p}-{measured_p - lerr}")
+            print(f"Measured Period: {round_to_significant_digits(measured_p, (herr - lerr)/2)}+{round_to_significant_digits(herr - measured_p,herr - measured_p)}-{round_to_significant_digits(measured_p - lerr, measured_p - lerr)} d")
             star.period = measured_p
             ax.plot(common_periods, common_power, color='#6D23B6', label="Multiplied Periodogram")
             ax.axvline(measured_p, linestyle="--", color="red", label="Measured Period")

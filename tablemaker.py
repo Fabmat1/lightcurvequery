@@ -111,15 +111,18 @@ if __name__ == '__main__':
         #                   .replace('08', '8')
         #                   .replace('09', '9'))
         # print(star.gaia_id)
+
+        check = r'{\unicodefont ✓}'
+        cross = r'{\unicodefont ✗}'
         print(fr"{star.name}"
               fr" & {len(star.datapoints)}"
               fr" & {np.sum(star.associations == 1) if np.sum(star.associations == 1) != 0 else '-'}"
               fr" & {np.sum(star.associations == 0) if np.sum(star.associations == 0) != 0 else '-'}"
               fr" & {np.sum(star.associations == 2) if np.sum(star.associations == 2) != 0 else '-'}"
-              fr" & {r'{\unicodefont ✓}' if 'TESS' in star.lightcurves.keys() else r'{\unicodefont ✗}'}"
-              fr" & {r'{\unicodefont ✓}' if 'GAIA' in star.lightcurves.keys() else r'{\unicodefont ✗}'}"
-              fr" & {r'{\unicodefont ✓}' if 'ATLAS' in star.lightcurves.keys() else r'{\unicodefont ✗}'}"
-              fr" & {r'{\unicodefont ✓}' if 'ZTF' in star.lightcurves.keys() else r'{\unicodefont ✗}'} \\"
+              fr" & {check if 'TESS' in star.lightcurves.keys() else cross}"
+              fr" & {check if 'GAIA' in star.lightcurves.keys() else cross}"
+              fr" & {check if 'ATLAS' in star.lightcurves.keys() else cross}"
+              fr" & {check if 'ZTF' in star.lightcurves.keys() else cross} \\"
               )
     print(r"\end{tabularx}")
 

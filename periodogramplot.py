@@ -220,7 +220,7 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
     n_samp_periods = 0
     if min_p is None or max_p is None or Nsamp is None:
         for telescope in star.lightcurves.keys():
-            psamp = genOptimalPeriodogramSamples(star.lightcurves[telescope][0].to_numpy(), 20, MIN_P, MAX_P, NSAMP)
+            psamp = genOptimalPeriodogramSamples(star.lightcurves[telescope][0].to_numpy(), 20, min_p, max_p, Nsamp)
             if psamp[-1] > n_samp_periods:
                 f0, df, Nf = psamp
                 freqs = np.linspace(f0, f0 + df * Nf, Nf)

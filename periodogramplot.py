@@ -286,6 +286,12 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
             # axs[0].set_xscale("log")
             ztf_aliases = sorted(ztf_aliases, key=alias_key_wrapper(periods, result_array))
             for [l, h] in ztf_aliases:
+                if min_p is not None:
+                    if l < min_p:
+                        continue
+                if max_p is not None:
+                    if h > max_p:
+                        continue
                 subper = periods[np.logical_and(periods > l, periods < h)]
                 subpow = result_array[np.logical_and(periods > l, periods < h)]
                 mp = subper[np.argmax(subpow)]
@@ -312,6 +318,12 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
         if telescope == "ATLAS" and CORRECT_ATLAS and not nocorr:
             atlas_aliases = sorted(atlas_aliases, key=alias_key_wrapper(periods, result_array))
             for [l, h] in atlas_aliases:
+                if min_p is not None:
+                    if l < min_p:
+                        continue
+                if max_p is not None:
+                    if h > max_p:
+                        continue
                 subper = periods[np.logical_and(periods > l, periods < h)]
                 subpow = result_array[np.logical_and(periods > l, periods < h)]
                 mp = subper[np.argmax(subpow)]

@@ -452,10 +452,12 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
             upper_power /= np.sum(upper_power)
             upper_periods = common_periods[upper_periods]
 
-            upper_cumsum = 1 - np.cumsum(upper_power)
-
-            upper_id = np.where(upper_cumsum >= sp)[0][-1]
-            herr = upper_periods[upper_id]
+            try:
+                upper_cumsum = 1 - np.cumsum(upper_power)
+                upper_id = np.where(upper_cumsum >= sp)[0][-1]
+                herr = upper_periods[upper_id]
+            except IndexError:
+                herr = 0
 
             lower_periods = common_periods < measured_p
             lower_power = common_power[lower_periods]
@@ -464,9 +466,12 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
             lower_power = np.flip(lower_power)
             lower_periods = np.flip(lower_periods)
 
-            lower_cumsum = 1 - np.cumsum(lower_power)
-            lower_id = np.where(lower_cumsum >= sp)[0][-1]
-            lerr = lower_periods[lower_id]
+            try:
+                lower_cumsum = 1 - np.cumsum(lower_power)
+                lower_id = np.where(lower_cumsum >= sp)[0][-1]
+                lerr = lower_periods[lower_id]
+            except IndexError:
+                lerr = 0
 
             print(f"Measured Period: {round_to_significant_digits(measured_p, (herr - lerr)/2)}+{round_to_significant_digits(herr - measured_p,herr - measured_p)}-{round_to_significant_digits(measured_p - lerr, measured_p - lerr)} d")
             star.period = measured_p

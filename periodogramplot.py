@@ -202,9 +202,11 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
 
 def alias_key_wrapper(pgram_x, pgram_y):
     def alias_key(interval):
-        mask = np.logical_and(pgram_x > interval[0], pgram_x < interval[1])
-        if np.sum(mask) != 0:
+        if interval[0] > pgram_x.max():
             return 0
+        if interval[1] < pgram_x.min():
+            return 0
+        mask = np.logical_and(pgram_x > interval[0], pgram_x < interval[1])
         return np.max(pgram_y[mask])
 
     return alias_key

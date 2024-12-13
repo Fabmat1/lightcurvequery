@@ -544,7 +544,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):
-            print(f"Found lightcurve at {fpath}, reading...")
+            # print(f"Found lightcurve at {fpath}, reading...")
             try:
                 lc = pd.read_csv(fpath, delimiter=",", header=None)
             except pd.errors.EmptyDataError:

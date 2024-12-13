@@ -54,6 +54,8 @@ class Star:
         self.lightcurves = {}
         self.periodograms = {}
 
+        self.spectra = {}
+
     def sortself(self):
         mask = np.argsort(self.times)
 

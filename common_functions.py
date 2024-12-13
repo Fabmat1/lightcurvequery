@@ -17,6 +17,7 @@ import os
 
 warnings.filterwarnings('ignore')
 
+
 def is_wsl():
     try:
         with open("/proc/version", "r") as f:
@@ -24,6 +25,7 @@ def is_wsl():
             return "microsoft" in version_info
     except FileNotFoundError:
         return False
+
 
 if os.name == 'nt':
     RVVD_PATH = "C:/Users/fabia/PycharmProjects/RVVD_plus"
@@ -126,14 +128,14 @@ def histogram_with_errorbars(data, uncertainties, outpath, num_bins=20, num_samp
     hist, bin_edges = np.histogram(data, bins=num_bins)
     # Calculate the mean and standard deviation for each bin
     # hist_mean = np.mean(hist_samples, axis=0)
-    hist_std = np.vstack([np.percentile(hist_samples, 50-68.2689492/2, axis=0), np.percentile(hist_samples, 50+68.2689492/2, axis=0)])
-    hist_std = (hist_std[1, :]-hist_std[0, :])/2
+    hist_std = np.vstack([np.percentile(hist_samples, 50 - 68.2689492 / 2, axis=0), np.percentile(hist_samples, 50 + 68.2689492 / 2, axis=0)])
+    hist_std = (hist_std[1, :] - hist_std[0, :]) / 2
 
     # Calculate bin centers for plotting
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
     plt.xlim(xlim)
-    plt.ylim(0, np.max(hist+hist_std)*1.1)
+    plt.ylim(0, np.max(hist + hist_std) * 1.1)
     # Plotting the histogram with error bars
     plt.bar(bin_centers, hist, width=bin_edges[1] - bin_edges[0], color=hist_color, alpha=alpha, label='Histogram', **kwargs)
     plt.errorbar(bin_centers, hist, yerr=hist_std, fmt='None', color=errorbar_color, label='Error bars')
@@ -256,7 +258,7 @@ def merger_time(M_1, M_2, p):
     return 3.22e-3 * ((M_1 + M_2) ** (1 / 3)) / (M_1 * M_2) * p ** (8 / 3)
 
 
-def load_star(gaia_id, row=None):
+def load_star(gaia_id, row=None, ignore_med=False):
     rvs = pd.read_csv(RVVD_PATH + f"/output/{gaia_id}/RV_variation.csv")
 
     res_comparison = res_table.loc[res_table["source_id"] == gaia_id]
@@ -266,6 +268,31 @@ def load_star(gaia_id, row=None):
     if len(file_list) == 0:
         print("No MJDs found for " + str(gaia_id))
     star = Star(gaia_id)
+
+    spec_file_list_fits = [f for f in os.listdir(RVVD_PATH + "/spectra_processed") if "mjd" not in f and "_".join(f.split("_")[:-1]) in associated_files]
+    spec_file_list = []
+
+    for spec_file in spec_file_list_fits:
+        if "med" in spec_file and ignore_med:
+            continue
+        n = 1
+        file_name = spec_file.replace(".fits", f"_{n:02d}.txt")
+        while os.path.exists(RVVD_PATH + "/spectra_processed/" + file_name):
+            nstr = f"{n:02d}"
+            spec_file_list.append(file_name)
+            n += 1
+            file_name = "_".join(spec_file.split("_")[:-1]) + "_" + nstr + ".txt"
+
+    for spec_file in spec_file_list:
+        try:
+            spec_mjd = np.loadtxt(os.path.join(RVVD_PATH, "spectra_processed", "_".join(spec_file.split("_")[:-1]) + "_mjd.txt"))[int(spec_file.split("_")[-1].replace(".txt", "")) - 1]
+        except IndexError:
+            spec_mjd = np.loadtxt(os.path.join(RVVD_PATH, "spectra_processed", "_".join(spec_file.split("_")[:-1]) + "_mjd.txt"))
+            if not np.ndim(spec_mjd) == 0:
+                raise AssertionError
+            else:
+                spec_mjd = float(spec_mjd)
+        star.spectra[spec_mjd] = np.loadtxt(RVVD_PATH + "/spectra_processed/" + spec_file, delimiter=" ")
 
     star.ra = res_table.loc[res_table["source_id"] == gaia_id]["ra"].iloc[0]
     star.dec = res_table.loc[res_table["source_id"] == gaia_id]["dec"].iloc[0]
@@ -342,9 +369,9 @@ def load_star(gaia_id, row=None):
             star.teff_err = (teffrow["conf_max"].iloc[0] - teffrow["conf_min"].iloc[0]) / 2
             star.logg_err = (loggrow["conf_max"].iloc[0] - loggrow["conf_min"].iloc[0]) / 2
             star.logy_err = (logyrow["conf_max"].iloc[0] - logyrow["conf_min"].iloc[0]) / 2
-            star.logg_err = np.sqrt(star.logg_err**2+0.1**2)
-            star.logy_err = np.sqrt(star.logy_err**2+0.1**2)
-            star.teff_err = np.sqrt(star.teff_err**2+1000**2)
+            star.logg_err = np.sqrt(star.logg_err ** 2 + 0.1 ** 2)
+            star.logy_err = np.sqrt(star.logy_err ** 2 + 0.1 ** 2)
+            star.teff_err = np.sqrt(star.teff_err ** 2 + 1000 ** 2)
         except IndexError:
             try:
                 if os.path.isfile(RVVD_PATH + f"/models/{gaia_id}/results_conf.fits"):
@@ -384,9 +411,9 @@ def load_star(gaia_id, row=None):
             star.logg_err = (loggrow["conf_max"].iloc[0] - loggrow["conf_min"].iloc[0]) / 2
             star.logy_err = (logyrow["conf_max"].iloc[0] - logyrow["conf_min"].iloc[0]) / 2
 
-            star.logg_err = np.sqrt(star.logg_err**2+0.1**2)
-            star.logy_err = np.sqrt(star.logy_err**2+0.1**2)
-            star.teff_err = np.sqrt(star.teff_err**2+1000**2)
+            star.logg_err = np.sqrt(star.logg_err ** 2 + 0.1 ** 2)
+            star.logy_err = np.sqrt(star.logy_err ** 2 + 0.1 ** 2)
+            star.teff_err = np.sqrt(star.teff_err ** 2 + 1000 ** 2)
         except IndexError:
             pass
 
@@ -469,8 +496,8 @@ def load_solved_stars(err_limit=0.5, orbit_tracking_table_path=None):
             if (star.m_1_err_lo + star.m_1_err_hi) / 2 > err_limit or (star.m_2_err_lo + star.m_2_err_hi) / 2 > err_limit:
                 stars.remove(star)
 
-    if len_before-len(stars) != 0:
-        print("Excluded "+str(len_before-len(stars))+" stars")
+    if len_before - len(stars) != 0:
+        print("Excluded " + str(len_before - len(stars)) + " stars")
 
     return stars
 

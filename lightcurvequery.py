@@ -544,8 +544,8 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):
+            print(f"Found lightcurve at {fpath}, reading...")
             lc = pd.read_csv(fpath, delimiter=",", header=None)
-
 
             if telescope == "GAIA":
                 if " NaN" not in lc.iloc[0].to_list():

@@ -187,7 +187,7 @@ def getztflc(gaia_id):
     c2 = SkyCoord(lcq.data["ra"].mean(),lcq.data["dec"].mean(), unit=(u.deg, u.deg), frame='icrs')
 
     sep = coord.separation(c2)
-    print(f"Found object at {lcq.data["ra"].mean()} {lcq.data["dec"].mean()}, with a separation of {sep.to(u.arcsec)}")
+    print(f"Found object at {lcq.data['ra'].mean()} {lcq.data['dec'].mean()}, with a separation of {sep.to(u.arcsec)}")
     
     mask = lcq.data["catflags"] == 0
 

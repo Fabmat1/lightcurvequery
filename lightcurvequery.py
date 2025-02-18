@@ -182,8 +182,13 @@ def getztflc(gaia_id):
     coord = SkyCoord.from_name(f'GAIA DR3 {gaia_id}')
 
     print(f"[{gaia_id}] Getting ZTF data...")
-    # try:
-    lcq = lightcurve.LCQuery().from_position((coord.ra * u.deg).value, (coord.dec * u.deg).value, 1)
+    lcq = lightcurve.LCQuery().from_position((coord.ra * u.deg).value, (coord.dec * u.deg).value, 5)
+
+    c2 = SkyCoord(lcq.data["ra"].mean(),lcq.data["dec"].mean(), unit=(u.deg, u.deg), frame='icrs')
+
+    sep = coord.separation(c2)
+    print(f"Found object at {lcq.data["ra"].mean()} {lcq.data["dec"].mean()}, with a separation of {sep.to(u.arcsec)}")
+    
     mask = lcq.data["catflags"] == 0
 
     data = lcq.data[mask]

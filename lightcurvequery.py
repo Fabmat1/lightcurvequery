@@ -475,7 +475,7 @@ def getgaialc(gaia_id):
         columns=["Source", "TimeG", "TimeBP", "TimeRP", "FG", "FBP", "FRP", "e_FG", "e_FBP", "e_FRP", "noisyFlag"]
     ).query_region(
         SkyCoord.from_name(f'GAIA DR3 {gaia_id}'),
-        radius=1 * u.arcsec,
+        radius=5 * u.arcsec,
         catalog='I/355/epphot'  # I/355/epphot is the designation for the Gaia photometric catalogue on Vizier
     )
 

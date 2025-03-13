@@ -478,13 +478,12 @@ def getgaialc(gaia_id):
         radius=5 * u.arcsec,
         catalog='I/355/epphot'  # I/355/epphot is the designation for the Gaia photometric catalogue on Vizier
     )
-
     if len(photquery) != 0:
         table = photquery[0].to_pandas()
         table = table[table["noisyFlag"] != 1]
         table = table.drop(columns=["noisyFlag"])
         table.columns = ["Source", "TimeG", "TimeBP", "TimeRP", "FG", "FBP", "FRP", "e_FG", "e_FBP", "e_FRP"]
-        table = table[table["Source"] == gaia_id]
+        table = table[table["Source"] == int(gaia_id)]
         table = table.drop(columns=["Source"])
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
@@ -553,7 +552,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
             try:
                 lc = pd.read_csv(fpath, delimiter=",", header=None)
             except pd.errors.EmptyDataError:
-                print(f"Error reading {fpath}! Is the file empty?")
+                print(f"Error reading {fpath}! Is the file empty? If this is about gaia_lc.txt then this can be safely ignored...")
                 print(f"Continuing anyways...")
                 continue
 
@@ -586,16 +585,20 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
                 print(f"Continuing anyways...")
 
             if telescope == "GAIA":
-                if " NaN" not in lc.iloc[0].to_list():
-                    # "TimeBP", "FG", "e_FG", "FBP", "e_FBP", "FRP", "e_FRP"
-                    lc = pd.DataFrame({
-                        0: pd.concat([lc[0], lc[1], lc[2]], ignore_index=True),
-                        1: pd.concat([lc[3], lc[4], lc[5]], ignore_index=True),
-                        2: pd.concat([lc[6], lc[7], lc[8]], ignore_index=True),
-                        3: ["G"] * len(lc) + ["BP"] * len(lc) + ["RP"] * len(lc)
-                    })
-                    lc = lc.dropna()
-                else:
+                try:
+                    if " NaN" not in lc.iloc[0].to_list():
+                        # "TimeBP", "FG", "e_FG", "FBP", "e_FBP", "FRP", "e_FRP"
+                        lc = pd.DataFrame({
+                            0: pd.concat([lc[0], lc[1], lc[2]], ignore_index=True),
+                            1: pd.concat([lc[3], lc[4], lc[5]], ignore_index=True),
+                            2: pd.concat([lc[6], lc[7], lc[8]], ignore_index=True),
+                            3: ["G"] * len(lc) + ["BP"] * len(lc) + ["RP"] * len(lc)
+                        })
+                        lc = lc.dropna()
+                    else:
+                        continue
+                except KeyError:
+                    print("Gaia data was empty! This probably means that none was found...")
                     continue
 
             if pd.isnull(lc[0].to_numpy()).any():

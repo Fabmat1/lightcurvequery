@@ -47,14 +47,17 @@ def get_crowdsap_lightkurve(tic_id):
         return f"No light curves found for TIC {tic_id}."
 
     # Download the light curve file
-    lc = search_result.download()
+    lcs = search_result.download_all()
+    
+    crowdsaps = []
+    for lc in lcs:
+        # Access the header information
+        header = lc.meta
 
-    # Access the header information
-    header = lc.meta
-
-    # Extract the CROWDSAP value
-    crowdsap = header.get('CROWDSAP', 'CROWDSAP not found')
-    return crowdsap
+        # Extract the CROWDSAP value
+        crowdsaps.append(header.get('CROWDSAP', 'CROWDSAP not found'))
+        
+    return crowdsaps
 
 
 def main():

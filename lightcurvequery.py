@@ -26,6 +26,8 @@ from astropy import units as u
 from makephotplot import plot_phot
 from models import Star
 from periodogramplot import plot_common_pgram
+import subprocess
+from pathlib import Path
 
 ATLASBASEURL = "https://fallingstar-data.com/forcedphot"
 
@@ -315,6 +317,55 @@ def getatlaslc(gaia_id):
     table.to_csv(f"lightcurves/{gaia_id}/atlas_lc.txt", index=False, header=False)
     print(f"[{gaia_id}] ATLAS data saved!")
 
+
+def getbglc(gaia_id):
+    # Define current directory path
+    current_dir = Path.cwd()
+
+    # Define input and output file paths
+    lightcurve_dir = current_dir / "lightcurves" / gaia_id
+    output_csv = lightcurve_dir / "output.csv"
+    output_txt = lightcurve_dir / "bg_lc.txt"
+
+    # Construct the command to run the query script
+    command = [
+        "python",
+        os.path.expanduser("~/workspace/query_fullsource/query_fullsource.py"),
+        str(output_csv),
+        "--source_ids",
+        gaia_id,
+        "--output_type",
+        "detections"
+    ]
+
+    # Execute the command without printing anything
+    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+    try:
+        # Read the generated output.csv
+        df = pd.read_csv(output_csv)
+
+        # Keep only the desired columns in the specified order
+        cols = ["MJD_OBS", "FNU_OPT", "FNUERRTOT_OPT", "FILTER"]
+        df_selected = df[cols]
+        if len(df_selected) <= 10:
+            print(f"Not enough BlackGEM data ({len(df_selected)}) to save.")
+            raise FileNotFoundError
+        elif len(df_selected) < 50:
+            print(f"Warning: Only {len(df_selected)} BlackGEM data points available.")
+
+        # Save the DataFrame to bg_lc.txt without headers and index
+        df_selected.to_csv(output_txt, sep=",", header=False, index=False)
+        print(f"[{gaia_id}] Got BlackGEM data!")
+        os.remove(output_csv)
+    except FileNotFoundError:
+        if not os.path.isdir(f"lightcurves/{gaia_id}"):
+            os.mkdir(f"lightcurves/{gaia_id}")
+        with open(f"lightcurves/{gaia_id}/bg_lc.txt", "w") as file:
+            file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+        print(f"[{gaia_id}] No BlackGEM data found!")
+
+
 def opentessfile(flist):
     if isinstance(flist, str):
         flist = [flist]
@@ -415,27 +466,35 @@ def gettesslc(gaia_id):
     flux_errors = []
     crowdsaps = []
 
+    print(f"[{gaia_id}] Looking for short cadence data...")
+    short_c_lc = Observations.download_products(data, productSubGroupDescription="FAST-LC")
+    
+    used_paths = []
+    if short_c_lc is not None:
+        for s in short_c_lc["Local Path"]:
+            t2, f2, ef2, cs2 = opentessfile(s)
+            times.append(t2)
+            fluxes.append(f2)
+            flux_errors.append(ef2)
+            crowdsaps.append(cs2)
+            used_paths.append(s.replace("-a_fast-lc.fits", "-s_lc.fits").replace("-a_fast", "-s"))
+
     print(f"[{gaia_id}] Looking for long cadence data...")
     long_c_lc = Observations.download_products(data, productSubGroupDescription="LC")
 
     if long_c_lc is not None:
-        long_c_lc = long_c_lc[0][0]
-        t1, f1, ef1, cs1 = opentessfile(long_c_lc)
-        times.append(t1)
-        fluxes.append(f1)
-        flux_errors.append(ef1)
-        crowdsaps.append(cs1)
+        for l in long_c_lc["Local Path"]:
+            print(l, "\n", used_paths)
+            if l in used_paths:
+                print("Short cadence data used already for TESS, skipping the long cadence data: ", l)
+                continue
+            t1, f1, ef1, cs1 = opentessfile(l)
+            times.append(t1)
+            fluxes.append(f1)
+            flux_errors.append(ef1)
+            crowdsaps.append(cs1)
 
-    print(f"[{gaia_id}] Looking for short cadence data...")
-    short_c_lc = Observations.download_products(data, productSubGroupDescription="FAST-LC")
 
-    if short_c_lc is not None:
-        short_c_lc = short_c_lc[0][0]
-        t2, f2, ef2, cs2 = opentessfile(short_c_lc)
-        times.append(t2)
-        fluxes.append(f2)
-        flux_errors.append(ef2)
-        crowdsaps.append(cs2)
 
     try:
         times = np.concatenate(times)
@@ -507,7 +566,7 @@ def getnone(gaia_id):
     pass
 
 
-def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=False, skip_gaia=False, nsamp=None, minp=0.05, maxp=50, coord=None, forced_period=None, no_whitening=False, binning=True):
+def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=False, skip_gaia=False, skip_bg=False, nsamp=None, minp=0.05, maxp=50, coord=None, forced_period=None, no_whitening=False, binning=True):
     """Fetch and plot lightcurves for a given Gaia ID."""
     base_dir = f"./lightcurves/{gaia_id}"
     ensure_directory_exists(base_dir)
@@ -517,7 +576,8 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
         "tess": gettesslc if not skip_tess else getnone,
         "ztf": getztflc if not skip_ztf else getnone,
         "atlas": getatlaslc if not skip_atlas else getnone,
-        "gaia": getgaialc if not skip_gaia else getnone
+        "gaia": getgaialc if not skip_gaia else getnone,
+        "bg": getbglc if not skip_gaia else getnone
     }
 
     for survey_name, fetch_function in surveys.items():
@@ -535,6 +595,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
         "GAIA": f"lightcurves/{gaia_id}/gaia_lc.txt",
         "ZTF": f"lightcurves/{gaia_id}/ztf_lc.txt",
         "ATLAS": f"lightcurves/{gaia_id}/atlas_lc.txt",
+        "BLACKGEM": f"lightcurves/{gaia_id}/bg_lc.txt",
     }
 
     if skip_gaia:
@@ -545,6 +606,8 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
         lc_paths.pop('TESS', None)
     if skip_ztf:
         lc_paths.pop('ZTF', None)
+    if skip_bg:
+        lc_paths.pop('BLACKGEM', None)
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):
@@ -671,6 +734,7 @@ Available commands:
     skip_ztf = False
     skip_atlas = False
     skip_gaia = False
+    skip_bg = False
     period = None
 
     min_p = 0.05
@@ -690,6 +754,8 @@ Available commands:
                 skip_atlas = True
             elif arg == "--skip-gaia":
                 skip_gaia = True
+            elif arg == "--skip-bg":
+                skip_bg = True
             elif arg == "--min-p":
                 min_p = float(sys.argv[2:][i+1])
             elif arg == "--max-p":
@@ -723,4 +789,4 @@ Available commands:
 """)
                 sys.exit(0)
 
-    process_lightcurves(gaia_id, skip_tess, skip_ztf, skip_atlas, skip_gaia, nsamp=Nsamp, minp=min_p, maxp=max_p, coord=coord, forced_period=period, no_whitening=no_whitening, binning=binning)
+    process_lightcurves(gaia_id, skip_tess, skip_ztf, skip_atlas, skip_gaia, skip_bg, nsamp=Nsamp, minp=min_p, maxp=max_p, coord=coord, forced_period=period, no_whitening=no_whitening, binning=binning)

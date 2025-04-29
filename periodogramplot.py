@@ -38,7 +38,8 @@ TELESCOPE_ZORDER = {
     "TESS": 10,
     "ZTF": 8,
     "GAIA": 6,
-    "ATLAS": 9
+    "ATLAS": 9,
+    "BLACKGEM": 7
 }
 
 atlas_aliases = [
@@ -58,6 +59,17 @@ atlas_aliases = [
 ]
 
 ztf_aliases = [
+    [0.1108, 0.1121],
+    [0.1424, 0.1434],
+    [0.1659, 0.167],
+    [0.1994, 0.2028],
+    [0.33, 0.338],
+    [0.4975, 0.5035],
+    [0.995, 1.005],
+]
+
+bg_aliases = [
+    [0.04998, 0.05002],
     [0.1108, 0.1121],
     [0.1424, 0.1434],
     [0.1659, 0.167],
@@ -215,6 +227,7 @@ def alias_key_wrapper(pgram_x, pgram_y):
 def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, plot=True, plot_as_bg=False, nocorr=False, axs=None):
     global atlas_aliases
     global ztf_aliases
+    global bg_aliases
 
     common_periods = None
     n_samp_periods = 0
@@ -343,7 +356,28 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
                                                    star.lightcurves[telescope][1].to_numpy(),
                                                    star.lightcurves[telescope][2].to_numpy(),
                                                    min_p, max_p, Nsamp)
+        if telescope == "BLACKGEM" and not nocorr:
+            bg_aliases = sorted(bg_aliases, key=alias_key_wrapper(periods, result_array))
+            for [l, h] in bg_aliases:
+                if min_p is not None and max_p is not None:
+                    if (l < min_p and h < max_p) or (l > max_p and h > max_p):
+                        continue
+                subper = periods[np.logical_and(periods > l, periods < h)]
+                subpow = result_array[np.logical_and(periods > l, periods < h)]
+                mp = subper[np.argmax(subpow)]
+                print(f"BLACKGEM: Correcting Signal @ {mp} days")
+                params, errs = curve_fit(sinus_fix_period(mp),
+                                         star.lightcurves[telescope][0].to_numpy(),
+                                         star.lightcurves[telescope][1].to_numpy(),
+                                         sigma=star.lightcurves[telescope][2].to_numpy()
+                                         )
 
+                star.lightcurves[telescope][1] -= sinus_fix_period(mp)(star.lightcurves[telescope][0].to_numpy(), *params)
+                result_array, periods = fast_pgram(star.lightcurves[telescope][0].to_numpy(),
+                                                   star.lightcurves[telescope][1].to_numpy(),
+                                                   star.lightcurves[telescope][2].to_numpy(),
+                                                   min_p, max_p, Nsamp)
+                
         f = interp1d(periods, result_array, bounds_error=False, fill_value=0)
         # if not ADD_RV and telescope == [k for k in star.lightcurves.keys() if k not in ignore_source][0]:
         #     common_periods = periods

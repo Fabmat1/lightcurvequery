@@ -78,7 +78,8 @@ t_colors = {
     "ZTF": "green",
     "GAIA": "red",
     "TESS": "blue",
-    "ATLAS": "darkorange"
+    "ATLAS": "darkorange",
+    "BLACKGEM": "magenta"
 }
 
 

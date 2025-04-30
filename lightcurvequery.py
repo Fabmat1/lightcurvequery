@@ -43,13 +43,38 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 
-def magtoflux(mag):
-    return 1 / (2.5 ** mag)
+def mags_to_relative_flux(mags):
+    """
+    Convert magnitudes to relative flux centered at 1.
 
+    Parameters:
+        mags (array-like): Array of magnitudes.
+
+    Returns:
+        np.ndarray: Relative flux array centered at 1.
+    """
+    mags = np.asarray(mags)
+    mag_ref = np.median(mags)
+    rel_flux = 10**(-0.4 * (mags - mag_ref))
+    return rel_flux
 
 def magerr_to_fluxerr(mag, magerr):
-    return (np.abs(1 / (2.5 ** mag) - 1 / (2.5 ** (mag - magerr))) + np.abs(1 / (2.5 ** mag) - 1 / (2.5 ** (mag + magerr)))) / 2
+    """
+    Convert magnitude errors to relative flux errors, centered at 1.
 
+    Parameters:
+        mag (array-like): Array of magnitudes.
+        magerr (array-like): Array of magnitude errors.
+
+    Returns:
+        np.ndarray: Array of relative flux errors.
+    """
+    mag = np.asarray(mag)
+    magerr = np.asarray(magerr)
+    mag_ref = np.median(mag)
+    rel_flux = 10**(-0.4 * (mag - mag_ref))
+    flux_err = 0.4 * np.log(10) * rel_flux * magerr
+    return flux_err
 def calcpgramsamples(x_ptp, min_p, max_p):
     n = np.ceil(x_ptp / min_p)
     R_p = (x_ptp / (n - 1) - x_ptp / n)
@@ -506,6 +531,7 @@ def gettesslc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+        print("TESS data error!")
         return
 
 
@@ -527,6 +553,7 @@ def gettesslc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+        print("No TESS data found!")
 
 
 def getgaialc(gaia_id):
@@ -553,7 +580,9 @@ def getgaialc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/gaia_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+            print("No Gaia data found!")
             return False
+
 
 
 def ensure_directory_exists(directory):
@@ -583,10 +612,16 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
     for survey_name, fetch_function in surveys.items():
         file_path = os.path.join(base_dir, f"{survey_name}_lc.txt")
         if not os.path.exists(file_path):
-            print(f"{file_path} not found. Downloading data...")
-            fetch_function(gaia_id)
+            if fetch_function == getnone:
+                print(f"Skipping {survey_name}!")
+            else:
+                print(f"{file_path} not found. Downloading data...")
+                fetch_function(gaia_id)
         else:
-            print(f"{file_path} already exists. Skipping download.")
+            if fetch_function == getnone:
+                print(f"Skipping {survey_name}!")
+            else:
+                print(f"{file_path} already exists. Skipping download.")
 
     star = Star(gaia_id)
 
@@ -778,6 +813,7 @@ Available commands:
 --skip-ztf      excludes ZTF data
 --skip-atlas    excludes ATLAS data
 --skip-gaia     excludes Gaia data
+--skip-bg       excludes BlackGEM data
 
 --no-binning    Disable binning
 --no-whitening  Disable pre-whitening

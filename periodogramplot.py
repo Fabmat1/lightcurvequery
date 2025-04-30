@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
+from matplotlib import rcParams, font_manager as fm
 import pandas as pd
 from astropy.time import Time
 from astropy.timeseries.periodograms.lombscargle._statistics import false_alarm_level

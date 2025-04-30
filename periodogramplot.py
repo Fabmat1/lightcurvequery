@@ -19,8 +19,18 @@ from makervplot import sinusoid
 from common_functions import *
 from tablemaker import round_to_significant_digits
 
-fm.findSystemFonts(fontpaths=None, fontext='ttf')
-rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
+# Get list of system fonts
+system_fonts = fm.findSystemFonts(fontpaths=None, fontext='ttf')
+
+# Check if Helvetica is available
+helvetica_installed = any("Helvetica" in fm.FontProperties(fname=font).get_name() for font in system_fonts)
+
+if helvetica_installed:
+    rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
+else:
+    print("Helvetica not found. Falling back to default sans-serif for plotting.")
+    rc('font', **{'family': 'sans-serif'})
+
 GAIA_ID = 5205381551075658624
 SET_P = None
 ADD_RV = False

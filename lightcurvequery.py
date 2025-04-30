@@ -274,7 +274,7 @@ def getatlaslc(gaia_id):
     else:
         print("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR .bashrc FILE:")
         print(f'export ATLASFORCED_SECRET_KEY="**YOURTOKEN**"')
-        return
+        return False
 
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     coord = SkyCoord.from_name(f'GAIA DR3 {gaia_id}')
@@ -305,7 +305,7 @@ def getatlaslc(gaia_id):
             else:
                 print(f"ERROR {resp.status_code}")
                 print(resp.text)
-                sys.exit()
+                return False
 
     result_url = None
     taskstarted_printed = False
@@ -330,6 +330,7 @@ def getatlaslc(gaia_id):
                 print(resp.text)
                 with open(f"lightcurves/{gaia_id}/atlas_lc.txt", "w") as file:
                     file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+                return False
 
     with requests.Session() as s:
         textdata = s.get(result_url, headers=headers).text
@@ -361,6 +362,7 @@ def getatlaslc(gaia_id):
 
     table.to_csv(f"lightcurves/{gaia_id}/atlas_lc.txt", index=False, header=False)
     print(f"[{gaia_id}] ATLAS data saved!")
+    return True
 
 
 def getbglc(gaia_id):

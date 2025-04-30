@@ -34,10 +34,12 @@ for font_path in fm.findSystemFonts(fontpaths=None, fontext='ttf'):
 
 # Set font configuration
 if helvetica_found:
-    rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica']})
+    rcParams['font.family'] = 'sans-serif'
+    rcParams['font.sans-serif'] = ['Helvetica']
 else:
     print("Helvetica not found. Falling back to default sans-serif.")
-    rc('font', **{'family': 'sans-serif'})
+    rcParams['font.family'] = 'sans-serif'
+    rcParams['font.sans-serif'] = ['DejaVu Sans']  # Default, always available
 
 GAIA_ID = 5205381551075658624
 SET_P = None

@@ -30,6 +30,18 @@ import subprocess
 from pathlib import Path
 import traceback
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import cycle
+
+# Optional: install with pip install rich
+from rich.live import Live
+from rich.table import Table
+from rich.panel import Panel
+from rich.align import Align
+from rich import box
+from rich.text import Text
+
 ATLASBASEURL = "https://fallingstar-data.com/forcedphot"
 
 class bcolors:
@@ -210,18 +222,25 @@ def getztflc(gaia_id):
     coord = SkyCoord.from_name(f'GAIA DR3 {gaia_id}')
 
     print(f"[{gaia_id}] Getting ZTF data...")
-    lcq = lightcurve.LCQuery().from_position((coord.ra * u.deg).value, (coord.dec * u.deg).value, 5)
+    lcq = lightcurve.LCQuery().from_position((coord.ra * u.deg).value, (coord.dec * u.deg).value, 20)
+
+    if str(lcq.data['ra'].mean()).lower() == "nan":
+        print(f"[{gaia_id}] No ZTF data available for this star!")
+        if not os.path.isdir(f"lightcurves/{gaia_id}"):
+            os.mkdir(f"lightcurves/{gaia_id}")
+        with open(f"lightcurves/{gaia_id}/ztf_lc.txt", "w") as file:
+            file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+        return False
 
     c2 = SkyCoord(lcq.data["ra"].mean(),lcq.data["dec"].mean(), unit=(u.deg, u.deg), frame='icrs')
 
     sep = coord.separation(c2)
-    print(f"Found object at {lcq.data['ra'].mean()} {lcq.data['dec'].mean()}, with a separation of {sep.to(u.arcsec)}")
-    
+    print(f"[{gaia_id}] Found object at {lcq.data['ra'].mean()} {lcq.data['dec'].mean()}, with a separation of {sep.to(u.arcsec)}")
+
     mask = lcq.data["catflags"] == 0
 
     data = lcq.data[mask]
     dates = data["mjd"].to_numpy()
-
 
     if len(dates) == 0:
         print(f"[{gaia_id}] No ZTF data available for this star!")
@@ -384,12 +403,14 @@ def getbglc(gaia_id):
         df_selected.to_csv(output_txt, sep=",", header=False, index=False)
         print(f"[{gaia_id}] Got BlackGEM data!")
         os.remove(output_csv)
+        return True
     except FileNotFoundError:
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/bg_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         print(f"[{gaia_id}] No BlackGEM data found!")
+        return False
 
 
 def opentessfile(flist):
@@ -470,7 +491,7 @@ def gettesslc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
-        return
+        return False
     else:
         print(f"[{gaia_id}] TIC is {tic}.")
 
@@ -486,7 +507,7 @@ def gettesslc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
-        return
+        return False
 
     times = []
     fluxes = []
@@ -534,7 +555,7 @@ def gettesslc(gaia_id):
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         print("TESS data error!")
-        return
+        return False
 
 
     if len(times) > 0:
@@ -550,12 +571,14 @@ def gettesslc(gaia_id):
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         np.savetxt(f"lightcurves/{gaia_id}/tess_lc.txt", np.vstack((times, flux, flux_error)).T, delimiter=",")
+        return True
     else:
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         print("No TESS data found!")
+        return False
 
 
 def getgaialc(gaia_id):
@@ -597,33 +620,96 @@ def getnone(gaia_id):
     pass
 
 
-def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=False, skip_gaia=False, skip_bg=False, nsamp=None, minp=0.05, maxp=50, coord=None, forced_period=None, no_whitening=False, binning=True):
+def process_lightcurves(
+    gaia_id,
+    skip_tess=False,
+    skip_ztf=False,
+    skip_atlas=False,
+    skip_gaia=False,
+    skip_bg=False,
+    nsamp=None,
+    minp=0.05,
+    maxp=50,
+    coord=None,
+    forced_period=None,
+    no_whitening=False,
+    binning=True,
+):
     """Fetch and plot lightcurves for a given Gaia ID."""
     base_dir = f"./lightcurves/{gaia_id}"
     ensure_directory_exists(base_dir)
 
-    # Survey-specific functions and file naming
+    # Map survey name to function and filename
     surveys = {
-        "tess": gettesslc if not skip_tess else getnone,
-        "ztf": getztflc if not skip_ztf else getnone,
-        "atlas": getatlaslc if not skip_atlas else getnone,
-        "gaia": getgaialc if not skip_gaia else getnone,
-        "bg": getbglc if not skip_bg else getnone
+        "TESS": (gettesslc, os.path.join(base_dir, "tess_lc.txt")),
+        "ZTF": (getztflc, os.path.join(base_dir, "ztf_lc.txt")),
+        "ATLAS": (getatlaslc, os.path.join(base_dir, "atlas_lc.txt")),
+        "Gaia": (getgaialc, os.path.join(base_dir, "gaia_lc.txt")),
+        "BlackGEM": (getbglc, os.path.join(base_dir, "bg_lc.txt")),
     }
+    # Apply skip flags
+    if skip_tess:   surveys["TESS"]   = (getnone, surveys["TESS"][1])
+    if skip_ztf:    surveys["ZTF"]    = (getnone, surveys["ZTF"][1])
+    if skip_atlas:  surveys["ATLAS"]  = (getnone, surveys["ATLAS"][1])
+    if skip_gaia:   surveys["Gaia"]   = (getnone, surveys["Gaia"][1])
+    if skip_bg:     surveys["BlackGEM"] = (getnone, surveys["BlackGEM"][1])
 
-    for survey_name, fetch_function in surveys.items():
-        file_path = os.path.join(base_dir, f"{survey_name}_lc.txt")
-        if not os.path.exists(file_path):
-            if fetch_function == getnone:
-                print(f"Skipping {survey_name}!")
-            else:
-                print(f"{file_path} not found. Downloading data...")
-                fetch_function(gaia_id)
+    spinner = cycle(["\\", "|", "/", "-"])
+    status = {name: {'symbol': '', 'style': 'grey50'} for name in surveys}
+    pending = set(surveys)
+    lock = threading.Lock()
+
+    def fetch(name, func, filepath, gid):
+        # If file exists, inspect content
+        if os.path.isfile(filepath):
+            try:
+                with open(filepath, 'r') as f:
+                    first_line = f.readline().strip()
+                # Empty or contains NaN
+                if not first_line or 'NaN' in first_line:
+                    sym, style = '✗', 'red'
+                else:
+                    sym, style = '✓', 'green'
+            except Exception:
+                sym, style = '✗', 'red'
         else:
-            if fetch_function == getnone:
-                print(f"Skipping {survey_name}!")
-            else:
-                print(f"{file_path} already exists. Skipping download.")
+            try:
+                result = func(gid)
+                sym, style = ('*', 'grey50') if func is getnone else (('✓', 'green') if result else ('✗', 'red'))
+            except Exception:
+                sym, style = '✗', 'red'
+        with lock:
+            status[name] = {'symbol': sym, 'style': style}
+            pending.discard(name)
+
+    def build_table():
+        tbl = Table(
+            title=f"Surveying lightcurves for Gaia DR3 {gaia_id}...",
+            box=box.ROUNDED,
+            show_header=False,
+            show_lines=True,
+            expand=False,
+            padding=(0,1),
+            title_style = "Bold Cyan"
+        )
+        for name in surveys:
+            tbl.add_column(name, justify="center", no_wrap=True)
+
+        names = [Text(name, style="bold") for name in surveys]
+        with lock:
+            frame = next(spinner)
+            symbols = [Text(frame, style="yellow") if name in pending else Text(status[name]['symbol'], style=status[name]['style']) for name in surveys]
+        tbl.add_row(*names)
+        tbl.add_row(*symbols)
+        return tbl
+
+    with Live(build_table(), refresh_per_second=8) as live:
+        with ThreadPoolExecutor(max_workers=len(surveys)) as executor:
+            futures = [executor.submit(fetch, name, fn, path, gaia_id) for name, (fn, path) in surveys.items()]
+            while pending:
+                live.update(build_table())
+                time.sleep(0.1)
+        live.update(build_table())
 
     star = Star(gaia_id)
 
@@ -674,7 +760,11 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
 
             star.lightcurves[telescope] = lc
 
-    plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp, whitening=~no_whitening)
+    try:
+        plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp, whitening=~no_whitening)
+    except TypeError:
+        print("No lightcurve data was found!")
+        exit()
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):

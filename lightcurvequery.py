@@ -606,7 +606,7 @@ def process_lightcurves(gaia_id, skip_tess=False, skip_ztf=False, skip_atlas=Fal
         "ztf": getztflc if not skip_ztf else getnone,
         "atlas": getatlaslc if not skip_atlas else getnone,
         "gaia": getgaialc if not skip_gaia else getnone,
-        "bg": getbglc if not skip_gaia else getnone
+        "bg": getbglc if not skip_bg else getnone
     }
 
     for survey_name, fetch_function in surveys.items():

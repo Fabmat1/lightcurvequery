@@ -44,7 +44,7 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 
-def mags_to_relative_flux(mags):
+def magtoflux(mags):
     """
     Convert magnitudes to relative flux centered at 1.
 
@@ -481,8 +481,7 @@ def gettesslc(gaia_id):
     try:
         data = Observations.get_product_list(obsTable)
     except InvalidQueryError as e:
-        print("TESS error")
-        traceback.print_exc()
+        print("No TESS lightcurve available!")
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:

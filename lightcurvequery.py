@@ -28,6 +28,7 @@ from models import Star
 from periodogramplot import plot_common_pgram
 import subprocess
 from pathlib import Path
+import traceback
 
 ATLASBASEURL = "https://fallingstar-data.com/forcedphot"
 
@@ -479,7 +480,9 @@ def gettesslc(gaia_id):
 
     try:
         data = Observations.get_product_list(obsTable)
-    except InvalidQueryError:
+    except InvalidQueryError as e:
+        print("TESS error")
+        traceback.print_exc()
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:

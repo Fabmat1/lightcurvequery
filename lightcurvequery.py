@@ -56,38 +56,16 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 
-def magtoflux(mags):
-    """
-    Convert magnitudes to relative flux centered at 1.
 
-    Parameters:
-        mags (array-like): Array of magnitudes.
-
-    Returns:
-        np.ndarray: Relative flux array centered at 1.
-    """
-    mags = np.asarray(mags)
-    mag_ref = np.median(mags)
-    rel_flux = 10**(-0.4 * (mags - mag_ref))
-    return rel_flux
+def magtoflux(mag):
+    return 10 ** (-0.4 * mag)
 
 def magerr_to_fluxerr(mag, magerr):
-    """
-    Convert magnitude errors to relative flux errors, centered at 1.
+    """Propagate magnitude error to flux error."""
+    flux = magtoflux(mag)
+    return flux * np.log(10) * 0.4 * magerr
 
-    Parameters:
-        mag (array-like): Array of magnitudes.
-        magerr (array-like): Array of magnitude errors.
 
-    Returns:
-        np.ndarray: Array of relative flux errors.
-    """
-    mag = np.asarray(mag)
-    magerr = np.asarray(magerr)
-    mag_ref = np.median(mag)
-    rel_flux = 10**(-0.4 * (mag - mag_ref))
-    flux_err = 0.4 * np.log(10) * rel_flux * magerr
-    return flux_err
 def calcpgramsamples(x_ptp, min_p, max_p):
     n = np.ceil(x_ptp / min_p)
     R_p = (x_ptp / (n - 1) - x_ptp / n)
@@ -224,22 +202,55 @@ def getztflc(gaia_id):
     print(f"[{gaia_id}] Getting ZTF data...")
     lcq = lightcurve.LCQuery().from_position((coord.ra * u.deg).value, (coord.dec * u.deg).value, 20)
 
-    if str(lcq.data['ra'].mean()).lower() == "nan":
-        print(f"[{gaia_id}] No ZTF data available for this star!")
-        if not os.path.isdir(f"lightcurves/{gaia_id}"):
-            os.mkdir(f"lightcurves/{gaia_id}")
-        with open(f"lightcurves/{gaia_id}/ztf_lc.txt", "w") as file:
-            file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+    try:
+        if str(lcq.data['ra'].mean()).lower() == "nan":
+            print(f"[{gaia_id}] No ZTF data available for this star!")
+            if not os.path.isdir(f"lightcurves/{gaia_id}"):
+                os.mkdir(f"lightcurves/{gaia_id}")
+            with open(f"lightcurves/{gaia_id}/ztf_lc.txt", "w") as file:
+                file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
+            return False
+    except KeyError as e:
+        print(lcq.data)
+        print(f"Exception while calling getztflc with gid={gid}:\n{traceback.format_exc()}")
         return False
 
-    c2 = SkyCoord(lcq.data["ra"].mean(),lcq.data["dec"].mean(), unit=(u.deg, u.deg), frame='icrs')
+    
+    # 1) Grab the raw table
+    tbl = lcq.data
 
-    sep = coord.separation(c2)
-    print(f"[{gaia_id}] Found object at {lcq.data['ra'].mean()} {lcq.data['dec'].mean()}, with a separation of {sep.to(u.arcsec)}")
+    # 2) Filter out any bad/missing RA or DEC
+    mask_finite = np.isfinite(tbl['ra']) & np.isfinite(tbl['dec'])
+    if not np.any(mask_finite):
+        print(f"[{gaia_id}] All RA/DEC values are invalid — skipping.")
+        return False
 
-    mask = lcq.data["catflags"] == 0
+    tbl = tbl[mask_finite]
+    n_removed = len(mask_finite) - np.count_nonzero(mask_finite)
+    if n_removed:
+        print(f"[{gaia_id}] Filtered out {n_removed} rows with invalid coordinates")
 
-    data = lcq.data[mask]
+    # 3) Build a SkyCoord array from the cleaned table
+    zc = SkyCoord(ra=np.array(tbl['ra']) * u.deg,
+                  dec=np.array(tbl['dec']) * u.deg,
+                  frame='icrs')
+
+    # 4) Find which detection is closest to your queried Gaia position
+    seps_to_gaia = zc.separation(coord)
+    idx_closest = np.argmin(seps_to_gaia)
+    closest_coord = zc[idx_closest]
+
+    # 5) Now keep only those rows within 2″ of that “best” detection
+    seps_to_closest = zc.separation(closest_coord)
+    mask_within_2as = seps_to_closest < 2 * u.arcsec
+    filtered_tbl = tbl[mask_within_2as]
+
+    print(f"[{gaia_id}] Best match was {seps_to_gaia[idx_closest].arcsec:.2f}″ from Gaia; "
+          f"keeping {len(filtered_tbl)} points within 2″ of that source.")
+
+    mask = filtered_tbl["catflags"] == 0
+
+    data = filtered_tbl[mask]
     dates = data["mjd"].to_numpy()
 
     if len(dates) == 0:
@@ -255,8 +266,20 @@ def getztflc(gaia_id):
     mag_err = data["magerr"].to_numpy()
     filters = data["filtercode"].to_numpy()
 
-    flx = magtoflux(mags)
-    flx_err = magerr_to_fluxerr(mags, mag_err)
+    flx = np.zeros_like(mags, dtype=float)
+    flx_err = np.zeros_like(mag_err, dtype=float)
+
+    for fil in np.unique(filters):
+        mask = (filters == fil) & np.isfinite(mags) & np.isfinite(mag_err)
+
+        flx[mask] = magtoflux(mags[mask])
+        flx_err[mask] = magerr_to_fluxerr(mags[mask], mag_err[mask])
+
+        median_flux = np.median(flx[mask])
+        flx[mask] /= median_flux
+        flx_err[mask] /= median_flux
+
+        print(f"Filter {fil}: median flux = {median_flux}")
 
     table = pd.DataFrame({"mjd": dates, "flx": flx, "flx_err": flx_err, "filter": filters})
     if not os.path.isdir(f"lightcurves/{gaia_id}"):
@@ -672,13 +695,15 @@ def process_lightcurves(
                     sym, style = '✗', 'red'
                 else:
                     sym, style = '✓', 'green'
-            except Exception:
+            except Exception as e:
+                print(f"Exception while reading file {filepath}:\n{traceback.format_exc()}")
                 sym, style = '✗', 'red'
         else:
             try:
                 result = func(gid)
                 sym, style = ('*', 'grey50') if func is getnone else (('✓', 'green') if result else ('✗', 'red'))
-            except Exception:
+            except Exception as e:
+                print(f"Exception while calling {func.__name__} with gid={gid}:\n{traceback.format_exc()}")
                 sym, style = '✗', 'red'
         with lock:
             status[name] = {'symbol': sym, 'style': style}
@@ -801,7 +826,6 @@ def process_lightcurves(
     star.phase = 0
     star.amplitude = 0
     star.offset = 0
-
     if forced_period is not None:
         star.period = forced_period
     plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=binning)

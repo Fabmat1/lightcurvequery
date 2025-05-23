@@ -83,6 +83,7 @@ ztf_aliases = [
     [0.1424, 0.1434],
     [0.1659, 0.167],
     [0.1994, 0.2028],
+    [0.2495, 0.252],
     [0.33, 0.338],
     [0.4975, 0.5035],
     [0.995, 1.005],
@@ -407,17 +408,22 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
 
         if plot:
             if axs is not None:
-                onesig, twosig, threesig = false_alarm_level([1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
-                                                             1 / min_p,
-                                                             star.lightcurves[telescope][0].to_numpy(),
-                                                             star.lightcurves[telescope][1].to_numpy(),
-                                                             star.lightcurves[telescope][2].to_numpy(),
-                                                             "standard")
+                try:
+                    onesig, twosig, threesig = false_alarm_level([1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
+                                                                 1 / min_p,
+                                                                 star.lightcurves[telescope][0].to_numpy(),
+                                                                 star.lightcurves[telescope][1].to_numpy(),
+                                                                 star.lightcurves[telescope][2].to_numpy(),
+                                                                 "standard")
 
-                axs[n].plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
-                axs[n].axhline(onesig, linestyle="--", color="#F7B267", label=r"$1\sigma$ limit")
-                axs[n].axhline(twosig, linestyle="--", color="#F4845F", label=r"$2\sigma$ limit")
-                axs[n].axhline(threesig, linestyle="--", color="#F25C54", label=r"$3\sigma$ limit")
+                    axs[n].plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
+                    axs[n].axhline(onesig, linestyle="--", color="#F7B267", label=r"$1\sigma$ limit")
+                    axs[n].axhline(twosig, linestyle="--", color="#F4845F", label=r"$2\sigma$ limit")
+                    axs[n].axhline(threesig, linestyle="--", color="#F25C54", label=r"$3\sigma$ limit")
+                except ZeroDivisionError:
+                    print("FAP too small to plot!")
+                    axs[n].plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
+                    
             else:
                 plt.plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
         n += 1

@@ -4,18 +4,19 @@ import re
 import time
 import sys
 from io import StringIO
-
+import argparse
 import requests
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
-from astroquery.gaia import Gaia
+#from astroquery.gaia import Gaia
 from astroquery.vizier import Vizier
 from gatspy import periodic
 from matplotlib import pyplot as plt
 from scipy.optimize import curve_fit
 from ztfquery import lightcurve
+import lightkurve as lk
 
 from astroquery.mast import Observations
 from astroquery.exceptions import InvalidQueryError
@@ -510,6 +511,7 @@ def gettesslc(gaia_id):
     print(f"[{gaia_id}] Getting MAST data...")
     tic = get_tic(gaia_id)
 
+
     if "No TIC" in tic or "Error" in tic:
         print(bcolors.FAIL+tic+bcolors.ENDC)
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
@@ -567,6 +569,18 @@ def gettesslc(gaia_id):
             flux_errors.append(ef1)
             crowdsaps.append(cs1)
 
+    print(f"[{gaia_id}] Looking for FFIs...")
+    search_result = lk.search_tesscut(f'Gaia DR3{gaia_id}')
+    print(f"[{gaia_id}] {len(search_result)} FFI datasets found!")
+    if len(search_result) != 1 and search_result is not None:
+        print(f"[{gaia_id}] Downloading TESS FFI...")
+        ffi_download = search_result.download(cutout_size=10)
+        print(ffi_download.time.shape)
+        print(ffi_download.flux.shape)
+        print(ffi_download.flux_err.shape)
+        #times.append(ffi_download.time)
+        #fluxes.append(ffi_download.flux)
+        #flux_errors.append(ffi_download.flux_err)
 
 
     try:
@@ -659,6 +673,7 @@ def process_lightcurves(
     forced_period=None,
     no_whitening=False,
     binning=True,
+    enable_plotting=True
 ):
     """Fetch and plot lightcurves for a given Gaia ID."""
     base_dir = f"./lightcurves/{gaia_id}"
@@ -787,11 +802,13 @@ def process_lightcurves(
 
             star.lightcurves[telescope] = lc
 
-    try:
-        plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp, whitening=~no_whitening)
-    except TypeError:
-        print("No lightcurve data was found!")
-        exit()
+    if not enable_plotting:
+        return
+    #try:
+    plot_common_pgram(star, ignore_source=[], min_p_given=minp, max_p_given=maxp, nsamp_given=nsamp, whitening=~no_whitening)
+    #except TypeError:
+    #    print("No lightcurve data was found!")
+    #    exit()
 
     for telescope, fpath in lc_paths.items():
         if os.path.isfile(fpath):
@@ -830,117 +847,231 @@ def process_lightcurves(
         star.period = forced_period
     plot_phot(star, add_rv_plot=False, ignore_sources=[], ignoreh=True, ignorezi=True, normalized=True, binned=binning)
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Process lightcurves for astronomical objects",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python lightcurvequery.py 1234567890123456789
+  python lightcurvequery.py 1234567890123456789 9876543210987654321
+  python lightcurvequery.py --coords 123.456 -45.678
+  python lightcurvequery.py --file gaia_ids.txt
+        """
+    )
+    
+    # Positional: list of Gaia IDs or RA/DEC
+    parser.add_argument(
+        'targets',
+        nargs='*',
+        help='List of Gaia DR3 source IDs or RA DEC coordinates'
+    )
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python process_lightcurves.py <gaia_id> [OPTIONS]")
-        print("OR: python process_lightcurves.py <ra [deg]> <dec [deg]> [OPTIONS]")
+    # Optional input alternatives
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        '--coords',
+        nargs=2,
+        metavar=('RA', 'DEC'),
+        type=float,
+        help='Coordinates in degrees (RA DEC)'
+    )
+    input_group.add_argument(
+        '--file', '-i',
+        type=str,
+        help='Path to file with list of Gaia DR3 source IDs'
+    )
+
+    # Data source exclusion flags
+    data_group = parser.add_argument_group('Data source options')
+    data_group.add_argument('--skip-tess', '-t', action='store_true', help='Exclude TESS data')
+    data_group.add_argument('--skip-ztf', '-z', action='store_true', help='Exclude ZTF data')
+    data_group.add_argument('--skip-atlas', '-a', action='store_true', help='Exclude ATLAS data')
+    data_group.add_argument('--skip-gaia', '-g', action='store_true', help='Exclude Gaia data')
+    data_group.add_argument('--skip-bg', '-b', action='store_true', help='Exclude BlackGEM data')
+    
+    # Processing options
+    processing_group = parser.add_argument_group('Processing options')
+    processing_group.add_argument('--no-binning', '-B', action='store_true', help='Disable binning')
+    processing_group.add_argument('--no-whitening', '-W', action='store_true', help='Disable pre-whitening')
+    processing_group.add_argument('--no-plot', '-P', action='store_true', help='Disable plotting output')
+    processing_group.add_argument('--plot', '-p', action='store_true', help='Enable plotting output (default)')
+    
+    # Period analysis options
+    period_group = parser.add_argument_group('Period analysis options')
+    period_group.add_argument('--min-p', '-m', type=float, default=0.05, metavar='PERIOD', help='Minimum period (d)')
+    period_group.add_argument('--max-p', '-M', type=float, default=50.0, metavar='PERIOD', help='Maximum period (d)')
+    period_group.add_argument('--force-nsamp', '-n', type=int, metavar='N', help='Force number of samples')
+    period_group.add_argument('--force-period', '-f', type=float, metavar='PERIOD', help='Use fixed period (d)')
+    
+    return parser
+
+
+def resolve_coordinates_and_gaia_id(args):
+    targets = []
+
+    # Handle --file input
+    if args.file:
+        targets.extend(load_gaia_ids_from_file(args.file))
+
+    # Handle --coords input
+    elif args.coords:
+        ra, dec = args.coords
+        coord = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
+        gaia_id = query_gaia_by_coordinates(coord)
+        targets.append((gaia_id, coord))
+
+    # Handle positional targets
+    elif args.targets:
+        if len(args.targets) == 2:
+            try:
+                ra, dec = float(args.targets[0]), float(args.targets[1])
+                if -360 <= ra <= 360 and -90 <= dec <= 90:
+                    coord = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
+                    gaia_id = query_gaia_by_coordinates(coord)
+                    targets.append((gaia_id, coord))
+                    return targets
+            except ValueError:
+                pass  # Fall back to treating as Gaia IDs
+
+        # Treat as Gaia IDs or file paths
+        for target in args.targets:
+            if target.endswith('.txt') or '/' in target or '\\' in target:
+                targets.extend(load_gaia_ids_from_file(target))
+            else:
+                validate_gaia_id(target)
+                targets.append((target, None))
+    
+    else:
+        print("Error: No targets provided. Use positional Gaia IDs, --file or --coords.")
         sys.exit(1)
 
-    gaia_id = sys.argv[1]
-    if "-" in gaia_id:
-        if gaia_id == "--help":
-            print("""Usage: python process_lightcurves.py <gaia_id> [OPTIONS]
-OR: python process_lightcurves.py <ra [deg]> <dec [deg]> [OPTIONS]
+    return targets
 
-Available commands:
---skip-tess     excludes TESS data
---skip-ztf      excludes ZTF data
---skip-atlas    excludes ATLAS data
---skip-gaia     excludes Gaia data
 
---no-binning    Disable binning
---no-whitening  Disable pre-whitening
-
---min-p <period [d]>        Define minimum period for periodogram (Default = 0.05d))
---max-p <period [d]>        Define maximum period for periodogram (Default = 50d)
---force-nsamp <int>         Force define number of samples used in periodogram
---force-period <period [d]> Forcibly define the period of the system
-""")
-            sys.exit(0)
-        else:
-            raise ValueError("Invalid Gaia ID! (Did you mean --help?)")
-
-    coord = None
-    if len(sys.argv) > 2 and "-" not in sys.argv[2]:
-        print(f"Querying for star at RA={sys.argv[1]} DEC={sys.argv[2]}")
-        try:
-            coord = SkyCoord(ra=float(sys.argv[1])*u.deg, dec=float(sys.argv[2])*u.deg)
-        except ValueError:
-            print("Invalid coordinate!")
+def load_gaia_ids_from_file(filename):
+    """
+    Load Gaia IDs from a file (one per line).
+    Returns list of tuples: [(gaia_id, None), ...]
+    """
+    targets = []
+    try:
+        with open(filename, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if line and not line.startswith('#'):  # Skip empty lines and comments
+                    try:
+                        validate_gaia_id(line)
+                        targets.append((line, None))
+                    except SystemExit:
+                        print(f"Error in file {filename}, line {line_num}: Invalid Gaia ID '{line}'")
+                        sys.exit(1)
+        
+        if not targets:
+            print(f"Error: No valid Gaia IDs found in file {filename}")
             sys.exit(1)
+            
+        print(f"Loaded {len(targets)} Gaia IDs from {filename}")
+        
+    except FileNotFoundError:
+        print(f"Error: File {filename} not found!")
+        sys.exit(1)
+    except IOError as e:
+        print(f"Error reading file {filename}: {e}")
+        sys.exit(1)
+    
+    return targets
 
-        # Define the search radius (e.g., 5 arcseconds)
-        radius = 5 * u.arcsec
+def validate_gaia_id(gaia_id):
+    """Validate that the Gaia ID looks reasonable."""
+    try:
+        # Gaia DR3 source IDs are typically 19-digit integers
+        int(gaia_id)
+        if len(gaia_id) < 10:  # Basic sanity check
+            raise ValueError("Gaia ID seems too short")
+    except ValueError:
+        print(f"Error: Invalid Gaia ID '{gaia_id}'!")
+        print("Gaia IDs should be numeric (e.g., 1234567890123456789)")
+        sys.exit(1)
 
-        # Query Gaia around the coordinates
+def query_gaia_by_coordinates(coord):
+    """Query Gaia catalog by coordinates and return the source ID."""
+    radius = 5 * u.arcsec
+    
+    try:
         job = Gaia.cone_search_async(coord, radius=radius)
         results = job.get_results()
-
+        
         if len(results) == 0:
-            print("No star within 5 arcsec! Are the coordinates correct?")
+            print("No star found within 5 arcsec! Please check coordinates.")
+            sys.exit(1)
         else:
-            gaia_id = results[0]["SOURCE_ID"]
-            print(bcolors.OKGREEN+"Star was identified as Gaia DR3 {gaia_id}!".format(gaia_id=gaia_id)+bcolors.ENDC)
+            gaia_id = str(results[0]["SOURCE_ID"])
+            print(f"\033[92mStar identified as Gaia DR3 {gaia_id}!\033[0m")  # Green text
+            return gaia_id
+    except Exception as e:
+        print(f"Error querying Gaia catalog: {e}")
+        sys.exit(1)
 
-    skip_tess = False
-    skip_ztf = False
-    skip_atlas = False
-    skip_gaia = False
-    skip_bg = False
-    period = None
-
-    min_p = 0.05
-    max_p = 50
-    Nsamp = None
-
-    no_whitening = False
-    binning = True
-
-    for i, arg in enumerate(sys.argv[2:]):
-        if "-" in arg:
-            if arg == "--skip-tess":
-                skip_tess = True
-            elif arg == "--skip-ztf":
-                skip_ztf = True
-            elif arg == "--skip-atlas":
-                skip_atlas = True
-            elif arg == "--skip-gaia":
-                skip_gaia = True
-            elif arg == "--skip-bg":
-                skip_bg = True
-            elif arg == "--min-p":
-                min_p = float(sys.argv[2:][i+1])
-            elif arg == "--max-p":
-                max_p = float(sys.argv[2:][i+1])
-            elif arg == "--force-nsamp":
-                Nsamp = float(sys.argv[2:][i+1])
-            elif arg == "--no-whitening":
-                no_whitening = True
-            elif arg == "--no-binning":
-                binning = False
-            elif arg == "--force-period":
-                period = float(sys.argv[2:][i+1])
-                print(f"Period: {period}")
-            elif arg == "--help":
-                print("""Usage: python process_lightcurves.py <gaia_id> [OPTIONS]
-           
-OR: python process_lightcurves.py <ra [deg]> <dec [deg]> [OPTIONS]     
-Available commands:
---skip-tess     excludes TESS data
---skip-ztf      excludes ZTF data
---skip-atlas    excludes ATLAS data
---skip-gaia     excludes Gaia data
---skip-bg       excludes BlackGEM data
-
---no-binning    Disable binning
---no-whitening  Disable pre-whitening
-
---min-p <period [d]>        Define minimum period for periodogram (Default = 0.05d))
---max-p <period [d]>        Define maximum period for periodogram (Default = 50d)
---force-nsamp <int>         Force define number of samples used in periodogram
---force-period <period [d]> Forcibly define the period of the system
-""")
-                sys.exit(0)
-
-    process_lightcurves(gaia_id, skip_tess, skip_ztf, skip_atlas, skip_gaia, skip_bg, nsamp=Nsamp, minp=min_p, maxp=max_p, coord=coord, forced_period=period, no_whitening=no_whitening, binning=binning)
+if __name__ == "__main__":
+    parser = parse_arguments()
+    args = parser.parse_args()
+    
+    # Handle coordinates and Gaia ID resolution
+    targets = resolve_coordinates_and_gaia_id(args)
+    
+    # Determine plotting behavior
+    enable_plotting = True  # Default to plotting enabled
+    if args.no_plot:
+        enable_plotting = False
+    elif args.plot:
+        enable_plotting = True
+    
+    # Print forced period if specified
+    if args.force_period:
+        print(f"Period: {args.force_period}")
+    
+    # Process all targets
+    total_targets = len(targets)
+    print(f"\nProcessing {total_targets} target{'s' if total_targets != 1 else ''}...\n")
+    
+    for i, (gaia_id, coord) in enumerate(targets, 1):
+        if total_targets > 1:
+            print(f"\n{'='*60}")
+            print(f"Processing target {i}/{total_targets}: Gaia DR3 {gaia_id}")
+            print(f"{'='*60}")
+        
+        try:
+            # Call the main processing function with parsed arguments
+            process_lightcurves(
+                gaia_id=gaia_id,
+                skip_tess=args.skip_tess,
+                skip_ztf=args.skip_ztf, 
+                skip_atlas=args.skip_atlas,
+                skip_gaia=args.skip_gaia,
+                skip_bg=args.skip_bg,
+                nsamp=args.force_nsamp,
+                minp=args.min_p,
+                maxp=args.max_p,
+                coord=coord,
+                forced_period=args.force_period,
+                no_whitening=args.no_whitening,
+                binning=not args.no_binning,  # Note: inverted logic
+                enable_plotting=enable_plotting
+            )
+            
+            if total_targets > 1:
+                print(f"✓ Completed processing for Gaia DR3 {gaia_id}")
+                
+        except Exception as e:
+            print(f"✗ Error processing Gaia DR3 {gaia_id}: {e}")
+            if total_targets > 1:
+                print("Continuing with next target...\n")
+                continue
+            else:
+                raise
+    
+    if total_targets > 1:
+        print(f"\n{'='*60}")
+        print(f"Completed processing all {total_targets} targets!")
+        print(f"{'='*60}")

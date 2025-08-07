@@ -677,6 +677,7 @@ def process_lightcurves(
 ):
     """Fetch and plot lightcurves for a given Gaia ID."""
     base_dir = f"./lightcurves/{gaia_id}"
+    ensure_directory_exists(f"./periodograms/{gaia_id}")
     ensure_directory_exists(base_dir)
 
     # Map survey name to function and filename
@@ -839,6 +840,9 @@ def process_lightcurves(
                 continue
 
             star.lightcurves[telescope] = lc
+
+    for k, v in star.periodograms.items():
+        np.savetxt(f"./periodograms/{gaia_id}/{k.lower()}_pgram.txt", np.vstack(v).T, delimiter=",")
 
     star.phase = 0
     star.amplitude = 0

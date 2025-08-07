@@ -17,7 +17,41 @@ import ctypes
 
 from makervplot import sinusoid
 from common_functions import *
-from tablemaker import round_to_significant_digits
+
+
+def round_to_significant_digits(value, err):
+    if value is None:
+        return np.nan
+    if err is None:
+        if value is None:
+            return np.nan
+        else:
+            return round(value, 2)
+    if err == 0:
+        return value
+
+    try:
+        # Determine the order of magnitude of the error
+        err_order = np.floor(np.log10(abs(err)))
+
+        # Calculate the factor to round the value to two significant digits of the error
+        factor = 10 ** (err_order - 1)
+
+        # Round the value to the nearest multiple of this factor
+        rounded_value = round(value / factor) * factor
+        # Format the result to avoid floating-point precision issues
+        # Use the number of decimals corresponding to the factor's order of magnitude
+        # Determine the number of decimal places for formatting
+        decimal_places = int(max(0, -err_order + 1))
+
+        # Format the result to avoid floating-point precision issues
+        formatted_value = f"{rounded_value:.{decimal_places}f}"
+
+        # Convert to float if the result has decimal places, else return as int
+        return formatted_value if '.' in formatted_value else int(formatted_value)
+
+    except ValueError:
+        return value
 
 
 helvetica_found = False
@@ -219,17 +253,20 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
         # Use default frequency range
         min_f, max_f = None, None
 
-    f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
+    if min_p is None or max_p is None or N is None:
+        f0, df, Nf = genOptimalPeriodogramSamples(t, 20, min_p, max_p, N)
 
-    # Create frequency grid
-    frequencies = np.linspace(f0, f0 + df * Nf, Nf)
+        # Create frequency grid
+        frequencies = np.linspace(f0, f0 + df * Nf, Nf)
+    else:
+        frequencies = np.flip(1/np.linspace(min_p, max_p, int(N)))
 
     ls = LombScargle(t, y, dy)
     power = ls.power(frequencies)
 
     # Convert frequencies to periods
     periods = 1.0 / frequencies
-
+    
     return power, periods
 
 
@@ -260,7 +297,7 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
                 freqs = np.linspace(f0, f0 + df * Nf, Nf)
                 common_periods = 1 / freqs
     else:
-        common_periods = np.linspace(min_p, max_p, Nsamp)
+        common_periods = np.linspace(min_p, max_p, int(Nsamp))
 
     common_power = np.ones_like(common_periods)
 
@@ -420,12 +457,14 @@ def calc_pgrams(star, ignore_source=[], min_p=MIN_P, max_p=MAX_P, Nsamp=NSAMP, p
                     axs[n].axhline(onesig, linestyle="--", color="#F7B267", label=r"$1\sigma$ limit")
                     axs[n].axhline(twosig, linestyle="--", color="#F4845F", label=r"$2\sigma$ limit")
                     axs[n].axhline(threesig, linestyle="--", color="#F25C54", label=r"$3\sigma$ limit")
+                    star.periodograms[telescope] = (periods, result_array)
                 except ZeroDivisionError:
                     print("FAP too small to plot!")
                     axs[n].plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
-                    
+                    star.periodograms[telescope] = (periods, result_array)
             else:
                 plt.plot(periods, result_array, color=t_colors[telescope] if not plot_as_bg else "gray", linestyle="-" if not plot_as_bg else "--", label=f"{telescope} Photometry", zorder=TELESCOPE_ZORDER[telescope])
+                star.periodograms[telescope] = (periods, result_array)
         n += 1
     return common_periods, common_power
 
@@ -468,15 +507,7 @@ def plot_common_pgram(star: Star, ignore_source=[], nsamp_given=NSAMP, min_p_giv
 
     common_periods, common_power = calc_pgrams(star, ignore_source, min_p=min_p_given, max_p=max_p_given, Nsamp=nsamp_given, nocorr=~whitening, axs=axs)
 
-    # plt.ylabel("Relative Power [arb. Unit]", fontsize=label_fontsize)
-    # plt.xlabel("Period [d]", fontsize=label_fontsize)
-    # plt.xlim(1.4, 1.8)
-    # plt.gca().tick_params(axis='both', which='major', labelsize=tick_fontsize)
-    # legend = plt.legend(title="Data sources", fontsize=legend_fontsize)
-    # plt.setp(legend.get_title(), fontsize=legend_fontsize)
-    # plt.tight_layout()
-    # plt.savefig(f"pgramplots/{GAIA_ID}_allpgplot_window.pdf", bbox_inches='tight', pad_inches=0)
-    # plt.show()
+    np.savetxt(f"./periodograms/{star.gaia_id}/multiplied_pgram.txt", np.vstack((common_periods, common_power)).T, delimiter=",")
 
     fig.supylabel("Relative Power [no Unit]", fontsize=label_fontsize)
     fig.supxlabel("Period [d]", fontsize=label_fontsize)

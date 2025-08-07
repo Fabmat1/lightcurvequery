@@ -371,7 +371,7 @@ def plot_phot(
             ax.legend([lbl], fontsize=legend_fontsize,
                       loc="lower right").set_zorder(6)
 
-        else:                     # multi-band
+        else:
             xs, ys, es, bands = _load_multi_band(
                 lc, star, telescope=tel, binned=binned, normalized=normalized
             )

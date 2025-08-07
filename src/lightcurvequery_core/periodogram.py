@@ -176,12 +176,14 @@ def calc_pgrams(
 
         # optional pre-whitening for ZTF / ATLAS / BlackGEM
         if whitening:
+
             aliases = (
                 ztf_aliases if tel == "ZTF" else
                 atlas_aliases if tel == "ATLAS" else
                 bg_aliases if tel == "BLACKGEM" else
                 []
             )
+            print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
             aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
             for lo, hi in aliases:
                 if min_p and hi < min_p or max_p and lo > max_p:
@@ -195,7 +197,7 @@ def calc_pgrams(
                     lc[0].to_numpy(), lc[1].to_numpy(),
                     sigma=lc[2].to_numpy(),
                 )
-                lc[1] -= sinus_fix_period(mp)(lc[0], *pars)
+                lc[1] -= (sinus_fix_period(mp)(lc[0], *pars)-1)
                 power, periods = fast_pgram(
                     lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
                     min_p, max_p, Nsamp,

@@ -30,7 +30,7 @@ from .periodogram import plot_common_pgram          # external – kept intact
 # ────────────────────────────────────────────────────────────────────
 def process_lightcurves(
     gaia_id,
-    *,
+    *,                        # unchanged keyword interface
     skip_tess=False,
     skip_ztf=False,
     skip_atlas=False,
@@ -39,11 +39,16 @@ def process_lightcurves(
     nsamp=None,
     minp=0.05,
     maxp=50,
-    coord=None,               # kept for API compatibility
+    coord=None,
     forced_period=None,
     no_whitening=False,
     binning=True,
     enable_plotting=True,
+    ztf_inner_radius: float = 5.0,
+    ztf_outer_radius: float = 20.0,
+    ztf_preview: bool = False,
+    ignore_h: bool = True,
+    ignore_zi: bool = True,
 ):
     """
     Fetch data, build a Star instance, compute periodograms, and create plots.
@@ -78,31 +83,33 @@ def process_lightcurves(
 
     # ---------------------------------------------------------------- helpers
     def fetch(name, func, filepath, gid):
-        """Download (or skip / reuse) one survey and update progress table."""
-        # skipped survey → grey asterisk, no download, no file inspection
+        # skipped survey
         if func is getnone:
             sym, style = '*', 'grey50'
-
         else:
             # data already on disk?
             if os.path.isfile(filepath):
                 try:
                     with open(filepath) as f:
-                        first_line = f.readline().strip()
-                    ok = bool(first_line) and 'NaN' not in first_line
+                        first = f.readline().strip()        # ← read only once
+                    ok = bool(first) and 'NaN' not in first
                     sym, style = ('✓', 'green') if ok else ('✗', 'red')
                 except Exception:
                     sym, style = '✗', 'red'
             else:
-                # need to call the fetcher
                 try:
-                    ok = func(gid)
+                    if name == "ZTF":
+                        ok = func(gid,
+                                  inner_arcsec=ztf_inner_radius,
+                                  outer_arcsec=ztf_outer_radius,
+                                  do_preview=ztf_preview)
+                    else:
+                        ok = func(gid)
                     sym, style = ('✓', 'green') if ok else ('✗', 'red')
                 except Exception:
                     print(f"Exception in {func.__name__} for {gid}:")
                     print(traceback.format_exc())
                     sym, style = '✗', 'red'
-
         with lock:
             status[name] = {'symbol': sym, 'style': style}
             pending.discard(name)
@@ -152,15 +159,6 @@ def process_lightcurves(
         except pd.errors.EmptyDataError:
             continue
 
-        # Gaia needs reshaping exactly like in the original script
-        if tel == "Gaia" and " NaN" not in lc.iloc[0].astype(str).tolist():
-            lc = pd.DataFrame({
-                0: pd.concat([lc[0], lc[1], lc[2]], ignore_index=True),
-                1: pd.concat([lc[3], lc[4], lc[5]], ignore_index=True),
-                2: pd.concat([lc[6], lc[7], lc[8]], ignore_index=True),
-                3: ["G"] * len(lc) + ["BP"] * len(lc) + ["RP"] * len(lc)
-            }).dropna()
-
         if not lc.empty and not lc[0].isna().any():
             star.lightcurves[tel.upper()] = lc
 
@@ -197,8 +195,8 @@ def process_lightcurves(
             star,
             add_rv_plot=False,
             ignore_sources=[],
-            ignoreh=True,
-            ignorezi=True,
+            ignoreh=ignore_h,
+            ignorezi=ignore_zi,
             normalized=True,
             binned=binning,
         )

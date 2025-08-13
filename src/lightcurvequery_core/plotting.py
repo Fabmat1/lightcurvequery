@@ -11,13 +11,17 @@ modules have been removed.
 """
 from __future__ import annotations
 
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib import rc
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
+from astropy import units as u
 from pathlib import Path
+import matplotlib
 
 
 from .star import Star
@@ -101,51 +105,61 @@ def _load_multi_band(
     fold: bool = True,
 ):
     out_x, out_y, out_e, bands = [], [], [], []
-
     base_x = lc[0].to_numpy()
-    if telescope.upper() == "GAIA":               # Gaia JD → MJD
+    if telescope.upper() == "GAIA":
         base_x += 2455197.5
         base_x = Time(base_x, format="jd").mjd
-
+    
     for band in lc[3].unique():
         sel = lc[3] == band
         x = base_x[sel.to_numpy()]
         y = lc[1][sel].to_numpy()
         e = lc[2][sel].to_numpy()
-
+        
         if normalized:
             scale = np.median(y)
             y, e = y / scale, e / scale
-
-            if telescope.upper() == "GAIA":
-                mask = y < 1.15        # old script’s “gmask” cut
-                x, y, e = x[mask], y[mask], e[mask]
-
+        
+        # FOLD FIRST, before binning
+        if fold and star.period is not None:
+            x = (x % star.period) / star.period
+            x = (x + star.phase) % 1.0
+            # Sort by phase for proper binning
+            sort_idx = np.argsort(x)
+            x, y, e = x[sort_idx], y[sort_idx], e[sort_idx]
+        
+        # THEN BIN (now in phase space if folded)
         if binned and len(x) > 100:
             nbins = int(np.sqrt(len(x))) + int(np.sqrt(len(x))) % 2
             edges = np.linspace(x.min(), x.max(), nbins + 1)
             idx = np.digitize(x, edges) - 1
-
-            bx = np.array([x[idx == i].mean() for i in range(nbins)])
-            by = np.array([y[idx == i].mean() for i in range(nbins)])
+            
+            # Handle empty bins
+            bx = np.array([x[idx == i].mean() if (idx == i).any() else np.nan 
+                          for i in range(nbins)])
+            by = np.array([y[idx == i].mean() if (idx == i).any() else np.nan 
+                          for i in range(nbins)])
             be = np.array([
                 np.sqrt((e[idx == i] ** 2).sum()) / max(1, (idx == i).sum())
+                if (idx == i).any() else np.nan
                 for i in range(nbins)
             ])
-            x, y, e = bx, by, be
-
+            
+            # Remove NaN bins
+            valid = ~np.isnan(bx)
+            x, y, e = bx[valid], by[valid], be[valid]
+        
+        # Add duplicate phase coverage for plotting (after binning)
         if fold and star.period is not None:
-            x = (x % star.period) / star.period
-            x = (x + star.phase) % 1.0
             x = np.concatenate([x - 1, x])
             y = np.concatenate([y, y])
             e = np.concatenate([e, e])
-
+        
         out_x.append(x)
         out_y.append(y)
         out_e.append(e)
         bands.append(band)
-
+    
     return out_x, out_y, out_e, bands
 
 
@@ -306,11 +320,16 @@ def plot_phot(
     dofit: bool = DOFIT,
 ):
     """
-    Replicates the behaviour of the original makephotplot.plot_phot.
-    """
+    Light-curve plotting with the following upgrades:
 
+    4. Robust y-limits: central 99 % of points (0.5–99.5 percentile)
+       around the median plus a ±5 % margin.  The same limits are
+       applied to *all* LC panels.
+    5. No vertical white-space between panels.
+    6. The period used for folding (± error, if available) is annotated
+       on every LC panel.
+    """
     ignore_sources = ignore_sources or []
-    # drop unwanted telescopes
     for src in ignore_sources:
         star.lightcurves.pop(src, None)
 
@@ -318,7 +337,37 @@ def plot_phot(
     if nrows == 0:
         raise RuntimeError("No lightcurves attached to Star object")
 
-    # figure height follows the original heuristic
+    # ---------------------------------------------------------------- gather y-values first (for global ylim)
+    y_collect: list[np.ndarray] = []
+
+    for tel, lc in star.lightcurves.items():
+        if len(lc.columns) < 4:                 # single band
+            _, y, _ = _load_single_band(
+                lc, star, telescope=tel, binned=binned,
+                normalized=normalized, fold=False
+            )
+            y_collect.append(y)
+        else:                                   # multi band
+            xs, ys, es, bands = _load_multi_band(
+                lc, star, telescope=tel, binned=binned,
+                normalized=normalized, fold=False
+            )
+            # ignore requested bands while collecting
+            for band, arr in zip(bands, ys):
+                if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
+                    continue
+                y_collect.append(arr)
+
+    if not y_collect:
+        raise RuntimeError("No usable photometric data found.")
+    y_all = np.concatenate(y_collect)
+    y_all = y_all[np.isfinite(y_all)]
+
+    p_lo, p_hi = np.percentile(y_all, [0.5, 99.5])
+    span = p_hi - p_lo
+    ylim_global = (p_lo - 0.05 * span, p_hi + 0.05 * span)
+
+    # ---------------------------------------------------------------- figure & axes
     if nrows == 1:
         height = 11.69 / 3
     elif nrows == 2:
@@ -334,10 +383,13 @@ def plot_phot(
         figsize=(8.27, height),
         dpi=100,
         sharex=True,
-        sharey=not add_rv_plot,
+        sharey=True,
     )
     axes = np.atleast_1d(axes)
 
+    fig.subplots_adjust(hspace=0)        # remove vertical gaps
+
+    # ---------------------------------------------------------------- optional RV panel
     row = 0
     if add_rv_plot:
         phasefoldplot(
@@ -352,46 +404,110 @@ def plot_phot(
         )
         row += 1
 
+    # ---------------------------------------------------------------- plot each LC
+    per_string = None
+    if star.period is not None:
+        if getattr(star, "period_loerr", None) is not None \
+           and getattr(star, "period_hierr", None) is not None:
+            per_string = (f"P = {star.period:.6f} "
+                          f"(+{star.period_hierr:.6f} / "
+                          f"-{star.period_loerr:.6f}) d")
+        else:
+            per_string = f"P = {star.period:.6f} d"
+
     for tel, lc in star.lightcurves.items():
         ax = axes[row]
         row += 1
 
-        if len(lc.columns) < 4:  # single-band
+        if len(lc.columns) < 4:  # single-band -----------------------------
             x, y, e = _load_single_band(
-                lc, star, telescope=tel, binned=binned, normalized=normalized
+                lc, star, telescope=tel,
+                binned=binned, normalized=normalized
             )
             ax.errorbar(x, y, yerr=e, fmt='.', color="darkred", ms=3, zorder=5)
-            
-            # ------------------------------------------------------- CROWD SAP
-            if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata:
-                lbl = f"TESS flux  (CROWDSAP={star.metadata['TESS_CROWD']:.2f})"
-            else:
-                lbl = f"{tel} flux"
-            
-            ax.legend([lbl], fontsize=legend_fontsize,
+            label = (f"TESS flux (CROWDSAP={star.metadata['TESS_CROWD']:.2f})"
+                     if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata
+                     else f"{tel} flux")
+            ax.legend([label], fontsize=legend_fontsize,
                       loc="lower right").set_zorder(6)
 
-        else:
+        else:                     # multi-band ------------------------------
             xs, ys, es, bands = _load_multi_band(
-                lc, star, telescope=tel, binned=binned, normalized=normalized
+                lc, star, telescope=tel,
+                binned=binned, normalized=normalized
             )
             for i, (x, y, e, band) in enumerate(zip(xs, ys, es, bands)):
                 if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
                     continue
                 col = bandcolors[i % len(bandcolors)]
-                ax.errorbar(x, y, yerr=np.abs(e), fmt='.', color=col, ms=3, zorder=5,
+                ax.errorbar(x, y, yerr=np.abs(e), fmt='.', color=col,
+                            ms=3, zorder=5,
                             label=f"{tel} {band} flux")
-
             ax.legend(fontsize=legend_fontsize, loc="lower right").set_zorder(6)
 
+        # ------------------ cosmetics shared by *all* LC panels -------------
         ax.set_ylabel("Normalized flux", fontsize=label_fontsize)
         ax.set_xlim(-1, 1)
+        ax.set_ylim(*ylim_global)
         ax.grid(True, linestyle='--', color="darkgrey")
         ax.tick_params(labelsize=tick_fontsize)
 
+        if per_string:
+            ax.annotate(per_string,
+                        xy=(0.02, 0.95), xycoords='axes fraction',
+                        ha='left', va='top', fontsize=8,
+                        bbox=dict(facecolor='white',
+                                  edgecolor='none', alpha=0.6))
+
+    # hide duplicate x-tick labels (all but bottom LC panel)
+    for ax in axes[:-1]:
+        ax.tick_params(labelbottom=False)
+
     axes[-1].set_xlabel("Phase", fontsize=label_fontsize)
+
     plt.tight_layout()
     Path("lcplots").mkdir(exist_ok=True)
     plt.savefig(f"lcplots/{star.gaia_id}_lcplot.pdf",
                 bbox_inches='tight', pad_inches=0)
     plt.show()
+
+# ───────────────────────── ZTF preview (moved from fetchers.py) ─────────────
+def plot_sky_coords_window(gaia_id, zc, coord, *, arcsec_radius=5, figsize=(10, 8)):
+    import matplotlib, numpy as np
+    prev_backend = matplotlib.get_backend()
+    matplotlib.use('Agg', force=True)
+    from matplotlib import pyplot as plt
+    from astropy import units as u
+
+    seps_to_gaia = zc.separation(coord)
+    idx_closest = np.argmin(seps_to_gaia)
+    closest_coord = zc[idx_closest]
+
+    mask = zc.separation(closest_coord) < arcsec_radius * u.arcsec
+    window_size = 20/3600
+    ra0, dec0 = closest_coord.ra.deg, closest_coord.dec.deg
+    ra_min, ra_max = ra0 - window_size, ra0 + window_size
+    dec_min, dec_max = dec0 - window_size, dec0 + window_size
+
+    fig, ax = plt.subplots(figsize=figsize)
+    win = ((zc.ra.deg >= ra_min) & (zc.ra.deg <= ra_max) &
+           (zc.dec.deg >= dec_min) & (zc.dec.deg <= dec_max))
+    ax.scatter(zc.ra.deg[win], zc.dec.deg[win], c='lightgray', s=20, alpha=0.5)
+    ax.scatter(zc.ra.deg[mask], zc.dec.deg[mask], c='blue', s=40, alpha=0.7)
+    ax.scatter(coord.ra.deg, coord.dec.deg, c='red', s=100, marker='*', edgecolors='k')
+    ax.scatter(ra0, dec0, c='green', s=80, marker='s', edgecolors='k')
+    circ = plt.Circle((ra0, dec0), arcsec_radius/3600, fill=False,
+                      color='green', linestyle='--')
+    ax.add_patch(circ)
+    ax.set_xlim(ra_max, ra_min)
+    ax.set_ylim(dec_min, dec_max)
+    ax.set_xlabel('RA (deg)')
+    ax.set_ylabel('Dec (deg)')
+    ax.grid(True, alpha=0.3)
+
+    out_dir = f"lightcurves/{gaia_id}"
+    Path(out_dir).mkdir(exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(f"{out_dir}/ztf_query_view.pdf", dpi=300)
+    plt.close()
+    matplotlib.use(prev_backend, force=True)

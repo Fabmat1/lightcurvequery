@@ -2,22 +2,16 @@
 Command-line interface – exactly the same behaviour as the old script.
 """
 from __future__ import annotations
-
-import sys
-import argparse
+import sys, argparse
 from typing import List, Tuple
-
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-
 from .process import process_lightcurves
 from .utils import bcolors
-
-# --- optional: only imported when --coords is used --------------------------
 try:
     from astroquery.gaia import Gaia
 except ModuleNotFoundError:
-    Gaia = None   # type: ignore
+    Gaia = None
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -27,11 +21,7 @@ def parse_arguments() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # positional
-    parser.add_argument('targets', nargs='*',
-                        help='List of Gaia source IDs or RA DEC')
-
-    # mutually exclusive input options
+    parser.add_argument('targets', nargs='*')
     g = parser.add_mutually_exclusive_group()
     g.add_argument('--coords', nargs=2, metavar=('RA', 'DEC'), type=float)
     g.add_argument('--file', '-i', type=str)
@@ -54,6 +44,21 @@ def parse_arguments() -> argparse.ArgumentParser:
     parser.add_argument('--max-p', '-M', type=float, default=50.0)
     parser.add_argument('--force-nsamp', '-n', type=int)
     parser.add_argument('--force-period', '-f', type=float)
+
+    # new ZTF-specific options
+    parser.add_argument('--ztf-inner-radius', type=float, default=5.0,
+                        metavar='ARCSEC',
+                        help='Inner radius (arcsec) kept around closest ZTF source')
+    parser.add_argument('--ztf-outer-radius', type=float, default=20.0,
+                        metavar='ARCSEC',
+                        help='Outer radius (arcsec) for initial ZTF query')
+    parser.add_argument('--plot-ztf-preview', action='store_true',
+                        help='Enable preview plot of ZTF sources')
+
+    parser.add_argument('--include-h', action='store_true',
+                        help='Show H-band photometry (ignored by default)')
+    parser.add_argument('--include-zi', action='store_true',
+                        help='Show zi-band photometry (ignored by default)')
 
     return parser
 
@@ -144,9 +149,6 @@ def main():
     targets = resolve_targets(args)
     enable_plotting = not args.no_plot
 
-    if args.force_period:
-        print(f"Forced period: {args.force_period}")
-
     total = len(targets)
     for idx, (gid, coord) in enumerate(targets, 1):
         if total > 1:
@@ -168,15 +170,18 @@ def main():
                 no_whitening=args.no_whitening,
                 binning=not args.no_binning,
                 enable_plotting=enable_plotting,
+                ztf_inner_radius=args.ztf_inner_radius,
+                ztf_outer_radius=args.ztf_outer_radius,
+                ztf_preview=args.plot_ztf_preview,
+                ignore_h=not args.include_h,
+                ignore_zi=not args.include_zi,
             )
         except Exception as exc:
             print(f"Error while processing {gid}: {exc}")
             if total == 1:
                 raise
-
     if total > 1:
         print(f"\nCompleted {total} targets.")
-
 
 if __name__ == "__main__":
     main()

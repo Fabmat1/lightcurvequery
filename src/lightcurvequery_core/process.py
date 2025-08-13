@@ -52,7 +52,7 @@ def process_lightcurves(
 ):
     """
     Fetch data, build a Star instance, compute periodograms, and create plots.
-    CLI-level behaviour identical to the original monolithic script.
+    Falls back to sequential fetching if ~/.ztfquery is missing and ZTF is not skipped.
     """
 
     # ------------------------------------------------------------------ setup
@@ -91,7 +91,7 @@ def process_lightcurves(
             if os.path.isfile(filepath):
                 try:
                     with open(filepath) as f:
-                        first = f.readline().strip()        # ← read only once
+                        first = f.readline().strip()
                     ok = bool(first) and 'NaN' not in first
                     sym, style = ('✓', 'green') if ok else ('✗', 'red')
                 except Exception:
@@ -135,17 +135,26 @@ def process_lightcurves(
         return tbl
 
     # ---------------------------------------------------------------- execute
-    with Live(make_table(), refresh_per_second=8) as live:
-        with ThreadPoolExecutor(max_workers=len(surveys)) as pool:
-            for name, (fn, path) in surveys.items():
-                pool.submit(fetch, name, fn, path, gaia_id)
+    ztfquery_path = os.path.expanduser("~/.ztfquery")
+    run_parallel = os.path.exists(ztfquery_path) or skip_ztf
 
-            # refresh table until every survey is finished
-            while pending:
+    with Live(make_table(), refresh_per_second=8) as live:
+        if run_parallel:
+            # --- parallel mode ---
+            with ThreadPoolExecutor(max_workers=len(surveys)) as pool:
+                for name, (fn, path) in surveys.items():
+                    pool.submit(fetch, name, fn, path, gaia_id)
+
+                while pending:
+                    live.update(make_table())
+                    time.sleep(0.1)
+        else:
+            # --- sequential mode ---
+            for name, (fn, path) in surveys.items():
+                fetch(name, fn, path, gaia_id)
                 live.update(make_table())
                 time.sleep(0.1)
 
-        # one final redraw after all tasks completed
         live.update(make_table())
 
     # ---------------------------------------------------------------- assemble data into Star object

@@ -52,7 +52,8 @@ def process_lightcurves(
 ):
     """
     Fetch data, build a Star instance, compute periodograms, and create plots.
-    Falls back to sequential fetching if ~/.ztfquery is missing and ZTF is not skipped.
+    Falls back to sequential fetching without Rich table if ~/.ztfquery is missing
+    and ZTF is not skipped (to avoid interfering with interactive login prompts).
     """
 
     # ------------------------------------------------------------------ setup
@@ -75,19 +76,16 @@ def process_lightcurves(
     if skip_gaia:   surveys["Gaia"]     = (getnone, surveys["Gaia"][1])
     if skip_bg:     surveys["BlackGEM"] = (getnone, surveys["BlackGEM"][1])
 
-    # ---------------------------------------------------------------- display
     spinner = cycle(["\\", "|", "/", "-"])
     status = {name: {'symbol': '', 'style': 'grey50'} for name in surveys}
-    pending = set(surveys)                 # names still running
+    pending = set(surveys)
     lock = threading.Lock()
 
     # ---------------------------------------------------------------- helpers
     def fetch(name, func, filepath, gid):
-        # skipped survey
         if func is getnone:
             sym, style = '*', 'grey50'
         else:
-            # data already on disk?
             if os.path.isfile(filepath):
                 try:
                     with open(filepath) as f:
@@ -138,9 +136,9 @@ def process_lightcurves(
     ztfquery_path = os.path.expanduser("~/.ztfquery")
     run_parallel = os.path.exists(ztfquery_path) or skip_ztf
 
-    with Live(make_table(), refresh_per_second=8) as live:
-        if run_parallel:
-            # --- parallel mode ---
+    if run_parallel:
+        # --- parallel mode with Rich table ---
+        with Live(make_table(), refresh_per_second=8) as live:
             with ThreadPoolExecutor(max_workers=len(surveys)) as pool:
                 for name, (fn, path) in surveys.items():
                     pool.submit(fetch, name, fn, path, gaia_id)
@@ -148,14 +146,14 @@ def process_lightcurves(
                 while pending:
                     live.update(make_table())
                     time.sleep(0.1)
-        else:
-            # --- sequential mode ---
-            for name, (fn, path) in surveys.items():
-                fetch(name, fn, path, gaia_id)
-                live.update(make_table())
-                time.sleep(0.1)
-
-        live.update(make_table())
+            live.update(make_table())
+    else:
+        # --- sequential mode without Rich table ---
+        print(f"No ~/.ztfquery found and ZTF not skipped — running sequentially.")
+        for name, (fn, path) in surveys.items():
+            print(f"Fetching {name}...")
+            fetch(name, fn, path, gaia_id)
+            print(f"  Done: {status[name]['symbol']}")
 
     # ---------------------------------------------------------------- assemble data into Star object
     star = Star(gaia_id)

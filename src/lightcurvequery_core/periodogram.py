@@ -335,7 +335,7 @@ def calc_pgrams(
     whitening=True,
     plot=True,
     plot_as_bg=False,
-    axs=None,
+    axs=None
 ):
     ignore_source = ignore_source or []
     common_periods, n_samp = None, 0
@@ -453,6 +453,7 @@ def plot_common_pgram(
     label_fontsize=12,
     legend_fontsize=8,
     tick_fontsize=10,
+    show_plots=True
 ):
     """
     Overhauled version – implements
@@ -555,8 +556,11 @@ def plot_common_pgram(
     plt.tight_layout()
     plt.savefig(f"pgramplots/{star.gaia_id}_periodograms.pdf",
                 bbox_inches="tight", pad_inches=0)
-    plt.show()
-
+    if show_plots:
+        plt.show()
+    else:
+        plt.close('all')
+        
     # --------- console output & bookkeeping ----------------------------------
     print(f"[{star.gaia_id}] Measured period: "
           f"{peak_p:.6f} (+{plus:.6f} / -{minus:.6f}) d")

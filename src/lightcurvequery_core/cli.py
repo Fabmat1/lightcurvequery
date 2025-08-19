@@ -37,7 +37,17 @@ def parse_arguments() -> argparse.ArgumentParser:
     parser.add_argument('--no-binning', '-B', action='store_true')
     parser.add_argument('--no-whitening', '-W', action='store_true')
     parser.add_argument('--no-plot', '-P', action='store_true')
-    parser.add_argument('--plot', '-p', action='store_true')
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    parser.add_argument('--show-plots', type=str2bool, default=True)
 
     # period options
     parser.add_argument('--min-p', '-m', type=float, default=0.05)
@@ -175,6 +185,7 @@ def main():
                 ztf_preview=args.plot_ztf_preview,
                 ignore_h=not args.include_h,
                 ignore_zi=not args.include_zi,
+                show_plots=args.show_plots,
             )
         except Exception as exc:
             print(f"Error while processing {gid}: {exc}")

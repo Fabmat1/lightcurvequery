@@ -44,6 +44,7 @@ def process_lightcurves(
     no_whitening=False,
     binning=True,
     enable_plotting=True,
+    show_plots=True,
     ztf_inner_radius: float = 5.0,
     ztf_outer_radius: float = 20.0,
     ztf_preview: bool = False,
@@ -186,6 +187,7 @@ def process_lightcurves(
             max_p_given=maxp,
             nsamp_given=nsamp,
             whitening=not no_whitening,
+            show_plots=show_plots
         )
 
     # save periodograms
@@ -206,4 +208,5 @@ def process_lightcurves(
             ignorezi=ignore_zi,
             normalized=True,
             binned=binning,
+            show_plots=show_plots,
         )

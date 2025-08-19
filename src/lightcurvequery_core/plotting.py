@@ -318,6 +318,7 @@ def plot_phot(
     ignorezi: bool = IGNOREZI,
     ignoreh: bool = IGNOREH,
     dofit: bool = DOFIT,
+    show_plots: bool = True,
 ):
     """
     Light-curve plotting with the following upgrades:
@@ -464,12 +465,16 @@ def plot_phot(
         ax.tick_params(labelbottom=False)
 
     axes[-1].set_xlabel("Phase", fontsize=label_fontsize)
+    plt.title(f"Lightcurve for Gaia DR3 {gaia_id}")
 
     plt.tight_layout()
     Path("lcplots").mkdir(exist_ok=True)
     plt.savefig(f"lcplots/{star.gaia_id}_lcplot.pdf",
                 bbox_inches='tight', pad_inches=0)
-    plt.show()
+    if show_plots:
+        plt.show()
+    else:
+        plt.close('all')
 
 # ───────────────────────── ZTF preview (moved from fetchers.py) ─────────────
 def plot_sky_coords_window(gaia_id, zc, coord, *, arcsec_radius=5, figsize=(10, 8)):

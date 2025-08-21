@@ -335,7 +335,7 @@ def calc_pgrams(
     whitening=True,
     plot=True,
     plot_as_bg=False,
-    axs=None
+    axs=None,
     legend_fontsize=8,
 ):
     common_periods, n_samp = None, 0

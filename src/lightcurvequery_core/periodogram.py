@@ -336,8 +336,8 @@ def calc_pgrams(
     plot=True,
     plot_as_bg=False,
     axs=None
+    legend_fontsize=8,
 ):
-    ignore_source = ignore_source or []
     common_periods, n_samp = None, 0
 
     # determine a common period grid
@@ -374,25 +374,26 @@ def calc_pgrams(
                 bg_aliases if tel == "BLACKGEM" else
                 []
             )
-            print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
-            aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
-            for lo, hi in aliases:
-                if min_p and hi < min_p or max_p and lo > max_p:
-                    continue
-                sub = (periods > lo) & (periods < hi)
-                if not sub.any():
-                    continue
-                mp = periods[sub][np.argmax(power[sub])]
-                pars, _ = curve_fit(
-                    sinus_fix_period(mp),
-                    lc[0].to_numpy(), lc[1].to_numpy(),
-                    sigma=lc[2].to_numpy(),
-                )
-                lc[1] -= (sinus_fix_period(mp)(lc[0], *pars)-1)
-                power, periods = fast_pgram(
-                    lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
-                    min_p, max_p, Nsamp,
-                )
+            if aliases != []:
+                print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
+                aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
+                for lo, hi in aliases:
+                    if min_p and hi < min_p or max_p and lo > max_p:
+                        continue
+                    sub = (periods > lo) & (periods < hi)
+                    if not sub.any():
+                        continue
+                    mp = periods[sub][np.argmax(power[sub])]
+                    pars, _ = curve_fit(
+                        sinus_fix_period(mp),
+                        lc[0].to_numpy(), lc[1].to_numpy(),
+                        sigma=lc[2].to_numpy(),
+                    )
+                    lc[1] -= (sinus_fix_period(mp)(lc[0], *pars)-1)
+                    power, periods = fast_pgram(
+                        lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
+                        min_p, max_p, Nsamp,
+                    )
 
         # accumulate multiplied periodogram
         f = interp1d(periods, power, bounds_error=False, fill_value=0)
@@ -435,6 +436,8 @@ def calc_pgrams(
                     ha='right', va='top', fontsize=9,
                     bbox=dict(facecolor='white', edgecolor='none', alpha=0.6))
 
+            ax.legend(fontsize=legend_fontsize, loc="best") 
+
             row += 1
 
     return common_periods, common_power
@@ -455,24 +458,8 @@ def plot_common_pgram(
     tick_fontsize=10,
     show_plots=True
 ):
-    """
-    Overhauled version – implements
-
-    1. All periodogram panels (except the zoom panel) share the *same*
-       x-axis.  Tick labels are shown only on the bottommost of those
-       panels.
-    2. Zoom panel x-axis orientation fixed (now identical to the other
-       panels).
-    3. The measured period (with ± error) is annotated directly on the
-       zoom panel.
-
-    The remaining behaviour is unchanged.
-    """
-    ignore_source = ignore_source or []
-
     ensure_directory_exists(f"./periodograms/{star.gaia_id}")
     ensure_directory_exists("pgramplots")
-
     n_pgram_panels = (
         len(star.lightcurves)
         - len([s for s in ignore_source if s in star.lightcurves])
@@ -497,6 +484,7 @@ def plot_common_pgram(
         Nsamp=nsamp_given,
         whitening=whitening,
         axs=axes[:n_pgram_panels],
+        legend_fontsize=legend_fontsize,
     )
 
     # bottom-most *periodogram* axis (before zoom)

@@ -50,6 +50,7 @@ def process_lightcurves(
     ztf_preview: bool = False,
     ignore_h: bool = True,
     ignore_zi: bool = True,
+    trim_tess: float = 0.0,
 ):
     """
     Fetch data, build a Star instance, compute periodograms, and create plots.
@@ -76,6 +77,16 @@ def process_lightcurves(
     if skip_atlas:  surveys["ATLAS"]    = (getnone, surveys["ATLAS"][1])
     if skip_gaia:   surveys["Gaia"]     = (getnone, surveys["Gaia"][1])
     if skip_bg:     surveys["BlackGEM"] = (getnone, surveys["BlackGEM"][1])
+
+    ignore_source = [
+        "TESS" if skip_tess else None,
+        "ZTF" if skip_ztf else None,
+        "ATLAS" if skip_atlas else None,
+        "GAIA" if skip_gaia else None,
+        "BLACKGEM" if skip_bg else None,
+    ]
+
+    ignore_source = [n for n in ignore_source if n is not None]
 
     spinner = cycle(["\\", "|", "/", "-"])
     status = {name: {'symbol': '', 'style': 'grey50'} for name in surveys}
@@ -182,7 +193,7 @@ def process_lightcurves(
     if enable_plotting and star.lightcurves:
         plot_common_pgram(
             star,
-            ignore_source=[],
+            ignore_source=ignore_source,
             min_p_given=minp,
             max_p_given=maxp,
             nsamp_given=nsamp,
@@ -203,7 +214,7 @@ def process_lightcurves(
         plot_phot(
             star,
             add_rv_plot=False,
-            ignore_sources=[],
+            ignore_sources=ignore_source,
             ignoreh=ignore_h,
             ignorezi=ignore_zi,
             normalized=True,

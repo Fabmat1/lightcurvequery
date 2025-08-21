@@ -55,6 +55,9 @@ def parse_arguments() -> argparse.ArgumentParser:
     parser.add_argument('--force-nsamp', '-n', type=int)
     parser.add_argument('--force-period', '-f', type=float)
 
+    parser.add_argument('--trim-tess', type=float, default=0.00,
+                        help='Percent of data to trim from the beginning and end of TESS sectors [0.0,0.5]')
+
     # new ZTF-specific options
     parser.add_argument('--ztf-inner-radius', type=float, default=5.0,
                         metavar='ARCSEC',
@@ -186,6 +189,7 @@ def main():
                 ignore_h=not args.include_h,
                 ignore_zi=not args.include_zi,
                 show_plots=args.show_plots,
+                trim_tess=args.trim_tess,
             )
         except Exception as exc:
             print(f"Error while processing {gid}: {exc}")

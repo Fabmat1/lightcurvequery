@@ -384,16 +384,20 @@ def calc_pgrams(
                     if not sub.any():
                         continue
                     mp = periods[sub][np.argmax(power[sub])]
-                    pars, _ = curve_fit(
-                        sinus_fix_period(mp),
-                        lc[0].to_numpy(), lc[1].to_numpy(),
-                        sigma=lc[2].to_numpy(),
-                    )
-                    lc[1] -= (sinus_fix_period(mp)(lc[0], *pars)-1)
-                    power, periods = fast_pgram(
-                        lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
-                        min_p, max_p, Nsamp,
-                    )
+                    omega = 2*np.pi / mp
+                    t  = lc[0].to_numpy()
+                    y  = lc[1].to_numpy()
+                    dy = lc[2].to_numpy()
+
+                    M   = np.column_stack((np.sin(omega*t),
+                                           np.cos(omega*t),
+                                           np.ones_like(t)))
+                    W   = np.diag(1./dy**2)
+
+                    theta = np.linalg.lstsq(W @ M, W @ y, rcond=None)[0]
+                    model = M @ theta
+
+                    lc[1] -= (model - 1.0)        # keeps the mean at 1
 
         # accumulate multiplied periodogram
         f = interp1d(periods, power, bounds_error=False, fill_value=0)

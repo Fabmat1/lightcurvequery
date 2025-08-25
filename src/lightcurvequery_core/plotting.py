@@ -465,7 +465,7 @@ def plot_phot(
         ax.tick_params(labelbottom=False)
 
     axes[-1].set_xlabel("Phase", fontsize=label_fontsize)
-    plt.title(f"Lightcurve for Gaia DR3 {star.gaia_id}")
+    plt.suptitle(f"Lightcurve for Gaia DR3 {star.gaia_id}")
 
     plt.tight_layout()
     Path("lcplots").mkdir(exist_ok=True)

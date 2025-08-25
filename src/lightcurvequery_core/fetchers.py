@@ -193,8 +193,6 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
         flx[mask] /= median_flux
         flx_err[mask] /= median_flux
 
-        print(f"Filter {fil}: median flux = {median_flux}")
-
     table = pd.DataFrame({"mjd": dates, "flx": flx, "flx_err": flx_err, "filter": filters})
     if not os.path.isdir(f"lightcurves/{gaia_id}"):
         os.mkdir(f"lightcurves/{gaia_id}")

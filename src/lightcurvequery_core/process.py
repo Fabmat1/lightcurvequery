@@ -14,6 +14,8 @@ from itertools import cycle
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_string_dtype, is_numeric_dtype
+
 from rich import box
 from rich.align import Align
 from rich.live import Live
@@ -178,8 +180,37 @@ def process_lightcurves(
         except pd.errors.EmptyDataError:
             continue
 
-        if not lc.empty and not lc[0].isna().any():
-            star.lightcurves[tel.upper()] = lc
+        if lc.empty or lc[0].isna().any():
+            continue
+
+        df = lc.copy()
+
+        # Detect columns
+        has_err = (2 in df.columns) and is_numeric_dtype(df[2])
+        # Prefer col 3 as filter; if absent but col 2 is string, use col 2 as filter
+        filter_col = None
+        if (3 in df.columns) and is_string_dtype(df[3]):
+            filter_col = 3
+        elif (2 in df.columns) and is_string_dtype(df[2]) and not has_err:
+            filter_col = 2  # treat col 2 as filter if it's non-numeric
+
+        if filter_col is not None:
+            # Per-filter normalization
+            for f, idx in df.groupby(filter_col).groups.items():
+                med = np.nanmedian(df.loc[idx, 1].values)
+                if np.isfinite(med) and med != 0:
+                    df.loc[idx, 1] = df.loc[idx, 1].values / med
+                    if has_err:
+                        df.loc[idx, 2] = df.loc[idx, 2].values / med
+        else:
+            # Global normalization
+            med = np.nanmedian(df[1].values)
+            if np.isfinite(med) and med != 0:
+                df[1] = df[1].values / med
+                if has_err:
+                    df[2] = df[2].values / med
+
+        star.lightcurves[tel.upper()] = df
 
     # ---------------------------------------------------------------- CROWD SAP
     crowd_file = os.path.join(base_dir, "tess_crowdsap.txt")

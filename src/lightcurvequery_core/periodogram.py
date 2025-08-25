@@ -23,7 +23,7 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import median_filter
 from scipy.optimize import curve_fit
 from scipy.stats import norm
-from astropy.timeseries import LombScargle
+from astropy.timeseries import LombScargle, LombScargleMultiband
 
 from .star import Star
 from .utils import t_colors, ensure_directory_exists, sinusoid
@@ -110,13 +110,19 @@ def gen_optimal_samples(t, sample_factor, min_p, max_p, Nsamp):
     return f0, df, Nsamp
 
 
-def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None):
+def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None, bands=None):
     if min_p is None or max_p is None or N is None:
         f0, df, Nf = gen_optimal_samples(t, 20, min_p, max_p, N)
         freqs = np.linspace(f0, f0 + df * Nf, Nf)
     else:
         freqs = np.flip(1 / np.linspace(min_p, max_p, int(N)))
-    power = LombScargle(t, y, dy).power(freqs)
+
+    if bands is not None:
+        ls = LombScargleMultiband(t, y, dy=dy, bands=bands)
+    else:
+        ls = LombScargle(t, y, dy)
+
+    power = ls.power(freqs, method="fast")
     return power, 1 / freqs
 
 
@@ -360,14 +366,29 @@ def calc_pgrams(
         if tel in ignore_source:
             continue
 
+        asnp = lambda x: x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
+        # detect multiband labels
+        bands_arg = None
+        try:
+            if hasattr(lc, "columns") and (3 in lc.columns):
+                ba = asnp(lc[3])
+                if ba.size == asnp(lc[0]).size:
+                    is_str = np.fromiter((isinstance(b, (str, np.str_)) for b in ba), dtype=bool, count=ba.size)
+                    if is_str.all():
+                        bands_arg = ba
+        except Exception:
+            bands_arg = None
+
         power, periods = fast_pgram(
-            lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
+            asnp(lc[0]).astype(float),
+            asnp(lc[1]).astype(float),
+            asnp(lc[2]).astype(float),
             min_p, max_p, Nsamp,
+            bands=bands_arg,
         )
-
         # optional pre-whitening for ZTF / ATLAS / BlackGEM
-        if whitening:
 
+        if whitening:
             aliases = (
                 ztf_aliases if tel == "ZTF" else
                 atlas_aliases if tel == "ATLAS" else
@@ -377,22 +398,66 @@ def calc_pgrams(
             if aliases != []:
                 print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
                 aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
+
                 for lo, hi in aliases:
-                    if min_p and hi < min_p or max_p and lo > max_p:
+                    if (min_p and hi < min_p) or (max_p and lo > max_p):
                         continue
+
+                    # use the current period grid to pick mp inside the alias window
                     sub = (periods > lo) & (periods < hi)
                     if not sub.any():
                         continue
                     mp = periods[sub][np.argmax(power[sub])]
-                    pars, _ = curve_fit(
-                        sinus_fix_period(mp),
-                        lc[0].to_numpy(), lc[1].to_numpy(),
-                        sigma=lc[2].to_numpy(),
-                    )
-                    lc[1] -= (sinus_fix_period(mp)(lc[0], *pars)-1)
+                    print(f"[{star.gaia_id}] {tel}: Eliminating {mp} d...")
+
+                    t = asnp(lc[0]).astype(float)
+                    y = asnp(lc[1]).astype(float)
+                    dy = asnp(lc[2]).astype(float)
+                    filt = asnp(lc[3]) if bands_arg is not None else None
+
+                    phase = (t % mp) / mp
+
+                    unique_filters = np.unique(filt) if filt is not None else [None]
+                    for f in unique_filters:
+                        mask = (filt == f) & np.isfinite(y) & np.isfinite(dy) if filt is not None \
+                               else (np.isfinite(y) & np.isfinite(dy))
+                        if mask.sum() <= 10:
+                            continue
+
+                        x_fit = phase[mask]
+                        y_fit = y[mask]
+                        dy_fit = dy[mask]
+
+                        try:
+                            pars, _ = curve_fit(
+                                sinus_fix_period(1.0),
+                                x_fit,
+                                y_fit,
+                                sigma=dy_fit,
+                            )
+                        except Exception:
+                            continue
+
+                        model_unfolded = sinus_fix_period(mp)(t[mask], *pars)
+
+                        y_resid = y[mask] - (model_unfolded - 1.0)
+                        med = np.nanmedian(y_resid)
+                        if np.isfinite(med) and med != 0.0:
+                            y_resid /= med
+                        y[mask] = y_resid
+
+                        # plt.scatter(x_fit.astype(float), y_fit.astype(float), s=10, label=f)
+                        # phi = np.linspace(0, 1, 500)
+                        # plt.plot(phi, sinus_fix_period(1.0)(phi, *pars), "r")
+                        # plt.legend(); plt.show()
+
+                    # single-step assignment to avoid chained assignment warnings
+                    lc.loc[:, 1] = y
+
                     power, periods = fast_pgram(
-                        lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
+                        t, y, dy,
                         min_p, max_p, Nsamp,
+                        bands=bands_arg,  # reuse detected bands
                     )
 
         # accumulate multiplied periodogram

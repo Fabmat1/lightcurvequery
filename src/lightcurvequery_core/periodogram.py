@@ -117,7 +117,19 @@ def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None, bands=None):
     else:
         freqs = np.flip(1 / np.linspace(min_p, max_p, int(N)))
 
+    # --- Filter out bands with fewer than 10 datapoints ---
     if bands is not None:
+        bands = np.asarray(bands)
+        unique, counts = np.unique(bands, return_counts=True)
+        valid_bands = unique[counts >= 10]
+        mask = np.isin(bands, valid_bands)
+
+        # Apply mask to all arrays
+        t = t[mask]
+        y = y[mask]
+        dy = dy[mask]
+        bands = bands[mask]
+
         ls = LombScargleMultiband(t, y, dy=dy, bands=bands)
     else:
         ls = LombScargle(t, y, dy)

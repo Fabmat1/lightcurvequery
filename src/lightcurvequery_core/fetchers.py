@@ -355,7 +355,7 @@ def getatlaslc(gaia_id):
          (df["uJy"] > 0) &
          (df["m"] > 0) &
          (df["err"] == 0) &
-         (np.abs(df["uJy"]) / np.abs(df["duJy"]) > 3) &
+         (np.abs(df["uJy"]) / np.abs(df["duJy"]) > 3)
     #     (df["duJy"] < 1e4) &
     #     (df["x"].between(100, 10460)) &
     #     (df["y"].between(100, 10460)) &

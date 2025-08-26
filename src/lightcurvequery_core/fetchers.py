@@ -348,7 +348,7 @@ def getatlaslc(gaia_id):
 
     df = pd.read_csv(StringIO(textdata.replace("###", "")), sep=r"\s+")
 
-    print(f"[{gaia_id}] Got {len(df)} points of ATLAS data!")
+    #print(f"[{gaia_id}] Got {len(df)} points of ATLAS data!")
 
     # --------------- quality mask (unchanged) ----------------------------
     # good = np.ones(len()).astype(bool) #(
@@ -385,7 +385,7 @@ def getatlaslc(gaia_id):
     outdir = f"lightcurves/{gaia_id}"
     os.makedirs(outdir, exist_ok=True)
     table.to_csv(f"{outdir}/atlas_lc.txt", index=False, header=False)
-    print(f"[{gaia_id}] {len(table)} points of ATLAS data saved! ({sum(~good)} discarded)")
+    print(f"[{gaia_id}] {len(table)} points of ATLAS data saved!") # ({sum(~good)} discarded)")
 
     # Keep the finished task in the cache so it can be re-used next time
     # (nothing to do – we never removed it).

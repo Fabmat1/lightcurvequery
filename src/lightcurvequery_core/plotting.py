@@ -343,15 +343,17 @@ def plot_phot(
 
     for tel, lc in star.lightcurves.items():
         if len(lc.columns) < 4:                 # single band
+
             _, y, _ = _load_single_band(
                 lc, star, telescope=tel, binned=binned,
-                normalized=normalized, fold=False
+                normalized=normalized, fold=True
             )
             y_collect.append(y)
+            print(np.nanmax(y), np.nanmin(y))
         else:                                   # multi band
             xs, ys, es, bands = _load_multi_band(
                 lc, star, telescope=tel, binned=binned,
-                normalized=normalized, fold=False
+                normalized=normalized, fold=True
             )
             # ignore requested bands while collecting
             for band, arr in zip(bands, ys):

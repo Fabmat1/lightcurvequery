@@ -351,20 +351,20 @@ def getatlaslc(gaia_id):
     print(f"[{gaia_id}] Got {len(df)} points of ATLAS data!")
 
     # --------------- quality mask (unchanged) ----------------------------
-    good = (
-        (df["uJy"] > 0) &
-        (df["m"] > 0) &
-        (df["err"] == 0) &
-        (np.abs(df["uJy"]) / np.abs(df["duJy"]) > 3) &
-        (df["duJy"] < 1e4) &
-        (df["x"].between(100, 10460)) &
-        (df["y"].between(100, 10460)) &
-        (df["maj"].between(1.6, 5)) &
-        (df["min"].between(1.6, 5)) &
-        (df["apfit"].between(-1, -0.1)) &
-        (df["mag5sig"] > 17) &
-        (df["Sky"] > 17)
-    )
+    good = np.ones().astype(bool) #(
+    #     (df["uJy"] > 0) &
+    #     (df["m"] > 0) &
+    #     (df["err"] == 0) &
+    #     (np.abs(df["uJy"]) / np.abs(df["duJy"]) > 3) &
+    #     (df["duJy"] < 1e4) &
+    #     (df["x"].between(100, 10460)) &
+    #     (df["y"].between(100, 10460)) &
+    #     (df["maj"].between(1.6, 5)) &
+    #     (df["min"].between(1.6, 5)) &
+    #     (df["apfit"].between(-1, -0.1)) &
+    #     (df["mag5sig"] > 17) &
+    #     (df["Sky"] > 17)
+    # )
     df = df[good].reset_index(drop=True)
 
     table = df[["MJD", "uJy", "duJy", "F"]].rename(

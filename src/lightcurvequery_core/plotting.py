@@ -325,11 +325,14 @@ def plot_phot(
 
     4. Robust y-limits: central 99 % of points (0.5–99.5 percentile)
        around the median plus a ±5 % margin.  The same limits are
-       applied to *all* LC panels.
+       applied to *all* LC panels unless a telescope’s span diverges
+       by more than 50 % from the global one, in which case an
+       individual limit is used and the plot is labelled “(divergent)”.
     5. No vertical white-space between panels.
     6. The period used for folding (± error, if available) is annotated
        on every LC panel.
     """
+    # ------------------------------------------------------------------ set-up
     ignore_sources = ignore_sources or []
     for src in ignore_sources:
         star.lightcurves.pop(src, None)
@@ -338,39 +341,60 @@ def plot_phot(
     if nrows == 0:
         raise RuntimeError("No lightcurves attached to Star object")
 
-    # ---------------------------------------------------------------- gather y-values first (for global ylim)
-    y_collect: list[np.ndarray] = []
+    # ----------------------------------------------------- gather y-values ----
+    per_tel_y: dict[str, list[np.ndarray]] = {tel: [] for tel in star.lightcurves}
+    y_collect: list[np.ndarray] = []          # for the GLOBAL statistics
 
     for tel, lc in star.lightcurves.items():
-        if len(lc.columns) < 4:                 # single band
-
+        if len(lc.columns) < 4:                       # single band ------------
             _, y, _ = _load_single_band(
-                lc, star, telescope=tel, binned=binned,
-                normalized=normalized, fold=True
+                lc, star, telescope=tel,
+                binned=binned, normalized=normalized, fold=True
             )
+            per_tel_y[tel].append(y)
             y_collect.append(y)
-            print(np.nanmax(y), np.nanmin(y))
-        else:                                   # multi band
+        else:                                         # multi band -------------
             xs, ys, es, bands = _load_multi_band(
-                lc, star, telescope=tel, binned=binned,
-                normalized=normalized, fold=True
+                lc, star, telescope=tel,
+                binned=binned, normalized=normalized, fold=True
             )
-            # ignore requested bands while collecting
             for band, arr in zip(bands, ys):
                 if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
                     continue
+                per_tel_y[tel].append(arr)
                 y_collect.append(arr)
 
     if not y_collect:
         raise RuntimeError("No usable photometric data found.")
+
+    # ----------------------------------------------------- global limits ------
     y_all = np.concatenate(y_collect)
     y_all = y_all[np.isfinite(y_all)]
+    p_lo_glob, p_hi_glob = np.percentile(y_all, [0.5, 99.5])
+    span_glob = p_hi_glob - p_lo_glob
+    ylim_global = (p_lo_glob - 0.05 * span_glob,
+                   p_hi_glob + 0.05 * span_glob)
 
-    p_lo, p_hi = np.percentile(y_all, [0.5, 99.5])
-    span = p_hi - p_lo
-    ylim_global = (p_lo - 0.05 * span, p_hi + 0.05 * span)
+    # ------------------------------------------------ per-telescope limits ----
+    ylim_dict: dict[str, tuple[float, float]] = {"global": ylim_global}
+    divergent_telescopes: set[str] = set()
 
-    # ---------------------------------------------------------------- figure & axes
+    for tel, arrs in per_tel_y.items():
+        y_tel = np.concatenate(arrs)
+        y_tel = y_tel[np.isfinite(y_tel)]
+        p_lo_tel, p_hi_tel = np.percentile(y_tel, [0.5, 99.5])
+        span_tel = p_hi_tel - p_lo_tel
+
+        if span_tel > 1.5 * span_glob or span_tel < 0.5 * span_glob:
+            # Divergent – use individual limits
+            ylim_tel = (p_lo_tel - 0.05 * span_tel,
+                        p_hi_tel + 0.05 * span_tel)
+            ylim_dict[tel] = ylim_tel
+            divergent_telescopes.add(tel)
+        else:
+            ylim_dict[tel] = ylim_global
+
+    # ---------------------------------------------------------- figure & axes
     if nrows == 1:
         height = 11.69 / 3
     elif nrows == 2:
@@ -380,19 +404,15 @@ def plot_phot(
     else:
         height = 11.69
 
+    # sharey=False to allow individual limits if necessary
     fig, axes = plt.subplots(
-        nrows=nrows,
-        ncols=1,
-        figsize=(8.27, height),
-        dpi=100,
-        sharex=True,
-        sharey=True,
+        nrows=nrows, ncols=1, figsize=(8.27, height), dpi=100,
+        sharex=True, sharey=False
     )
     axes = np.atleast_1d(axes)
+    fig.subplots_adjust(hspace=0)          # remove vertical gaps
 
-    fig.subplots_adjust(hspace=0)        # remove vertical gaps
-
-    # ---------------------------------------------------------------- optional RV panel
+    # ---------------------------------------------------- optional RV panel
     row = 0
     if add_rv_plot:
         phasefoldplot(
@@ -407,7 +427,7 @@ def plot_phot(
         )
         row += 1
 
-    # ---------------------------------------------------------------- plot each LC
+    # ------------------------------------------------------------- period text
     per_string = None
     if star.period is not None:
         if getattr(star, "period_loerr", None) is not None \
@@ -418,11 +438,12 @@ def plot_phot(
         else:
             per_string = f"P = {star.period:.6f} d"
 
+    # ------------------------------------------------ plotting loop ----------
     for tel, lc in star.lightcurves.items():
         ax = axes[row]
         row += 1
 
-        if len(lc.columns) < 4:  # single-band -----------------------------
+        if len(lc.columns) < 4:                         # single band ---------
             x, y, e = _load_single_band(
                 lc, star, telescope=tel,
                 binned=binned, normalized=normalized
@@ -434,7 +455,7 @@ def plot_phot(
             ax.legend([label], fontsize=legend_fontsize,
                       loc="lower right").set_zorder(6)
 
-        else:                     # multi-band ------------------------------
+        else:                                           # multi band ----------
             xs, ys, es, bands = _load_multi_band(
                 lc, star, telescope=tel,
                 binned=binned, normalized=normalized
@@ -448,12 +469,18 @@ def plot_phot(
                             label=f"{tel} {band} flux")
             ax.legend(fontsize=legend_fontsize, loc="lower right").set_zorder(6)
 
-        # ------------------ cosmetics shared by *all* LC panels -------------
+        # -------------------------- cosmetics --------------------------------
         ax.set_ylabel("Normalized flux", fontsize=label_fontsize)
         ax.set_xlim(-1, 1)
-        ax.set_ylim(*ylim_global)
+        ax.set_ylim(*ylim_dict[tel])
         ax.grid(True, linestyle='--', color="darkgrey")
         ax.tick_params(labelsize=tick_fontsize)
+
+        if tel in divergent_telescopes:
+            # small note next to y-axis
+            ax.annotate("(divergent)", xy=(1.02, 0.5), xycoords='axes fraction',
+                        rotation=90, va='center', ha='left',
+                        fontsize=8, color='crimson')
 
         if per_string:
             ax.annotate(per_string,
@@ -467,9 +494,11 @@ def plot_phot(
         ax.tick_params(labelbottom=False)
 
     axes[-1].set_xlabel("Phase", fontsize=label_fontsize)
-    plt.suptitle(f"Lightcurve for Gaia DR3 {star.gaia_id}")
 
+    plt.suptitle(f"Lightcurve for Gaia DR3 {star.gaia_id}")
     plt.tight_layout()
+
+    # save & show -------------------------------------------------------------
     Path("lcplots").mkdir(exist_ok=True)
     plt.savefig(f"lcplots/{star.gaia_id}_lcplot.pdf",
                 bbox_inches='tight', pad_inches=0)

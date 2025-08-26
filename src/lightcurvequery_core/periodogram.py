@@ -87,10 +87,15 @@ def round_to_significant_digits(val, err):
         return val
 
 
-def sinus_fix_period(period):
-    def wrapped(x, amplitude, offset, phase):
-        return sinusoid(x, amplitude, period, offset, phase)
-    return wrapped
+def sinus_fix_period(P):
+    """
+    Return a sine model with fixed period P but free amplitude,
+    phase and constant term:
+
+        f(t) = A * sin( 2π (t + φ) / P ) + C
+    """
+    w = 2.0 * np.pi / P
+    return lambda t, A, phi, C: A * np.sin(w * (t + phi)) + C
 
 
 def gen_optimal_samples(t, sample_factor, min_p, max_p, Nsamp):
@@ -401,75 +406,77 @@ def calc_pgrams(
         # optional pre-whitening for ZTF / ATLAS / BlackGEM
 
         if whitening:
-            aliases = (
-                ztf_aliases if tel == "ZTF" else
-                atlas_aliases if tel == "ATLAS" else
-                bg_aliases if tel == "BLACKGEM" else
-                []
-            )
-            if aliases != []:
+            aliases = (ztf_aliases if tel == "ZTF" else
+                       atlas_aliases if tel == "ATLAS" else
+                       bg_aliases if tel == "BLACKGEM" else
+                       [])
+
+            if aliases:
                 print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
                 aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
+
+                # copy the light curve once; we will overwrite y in-place
+                t   = asnp(lc[0]).astype(float)
+                y   = asnp(lc[1]).astype(float)
+                dy  = asnp(lc[2]).astype(float)
+                filt = asnp(lc[3]) if bands_arg is not None else None
 
                 for lo, hi in aliases:
                     if (min_p and hi < min_p) or (max_p and lo > max_p):
                         continue
 
-                    # use the current period grid to pick mp inside the alias window
+                    # pick the maximum-power period inside the alias window
                     sub = (periods > lo) & (periods < hi)
                     if not sub.any():
                         continue
                     mp = periods[sub][np.argmax(power[sub])]
-                    print(f"[{star.gaia_id}] {tel}: Eliminating {mp} d...")
+                    print(f"[{star.gaia_id}] {tel}: Eliminating {mp:.6f} d ...")
 
-                    t = asnp(lc[0]).astype(float)
-                    y = asnp(lc[1]).astype(float)
-                    dy = asnp(lc[2]).astype(float)
-                    filt = asnp(lc[3]) if bands_arg is not None else None
-
+                    # ------------------------------------------------------
+                    #  fit a sine in PHASE space, then subtract in TIME space
+                    # ------------------------------------------------------
                     phase = (t % mp) / mp
-
                     unique_filters = np.unique(filt) if filt is not None else [None]
+
                     for f in unique_filters:
-                        mask = (filt == f) & np.isfinite(y) & np.isfinite(dy) if filt is not None \
-                               else (np.isfinite(y) & np.isfinite(dy))
+                        mask = ((filt == f) if filt is not None else True)
+                        mask = mask & np.isfinite(y) & np.isfinite(dy)
+
                         if mask.sum() <= 10:
                             continue
 
+                        # data to be fitted
                         x_fit = phase[mask]
                         y_fit = y[mask]
                         dy_fit = dy[mask]
 
                         try:
+                            # fit: amplitude, phase, CONSTANT
                             pars, _ = curve_fit(
-                                sinus_fix_period(1.0),
+                                sinus_fix_period(1.0),   # unit period in phase space
                                 x_fit,
                                 y_fit,
                                 sigma=dy_fit,
                             )
                         except Exception:
+                            # bad fit – silently skip this filter
                             continue
 
-                        model_unfolded = sinus_fix_period(mp)(t[mask], *pars)
+                        # evaluate the model back in TIME space
+                        model_t = sinus_fix_period(mp)(t[mask], *pars)
+                        C = pars[-1]                   # fitted DC level
 
-                        y_resid = y[mask] - (model_unfolded - 1.0)
-                        med = np.nanmedian(y_resid)
-                        if np.isfinite(med) and med != 0.0:
-                            y_resid /= med
-                        y[mask] = y_resid
+                        # subtract ONLY the oscillatory part
+                        y[mask] -= (model_t - C)
 
-                        # plt.scatter(x_fit.astype(float), y_fit.astype(float), s=10, label=f)
-                        # phi = np.linspace(0, 1, 500)
-                        # plt.plot(phi, sinus_fix_period(1.0)(phi, *pars), "r")
-                        # plt.legend(); plt.show()
-
-                    # single-step assignment to avoid chained assignment warnings
+                    # write the new fluxes back into the dataframe
                     lc.loc[:, 1] = y
 
+                    # recompute the periodogram for the next alias pass
                     power, periods = fast_pgram(
                         t, y, dy,
                         min_p, max_p, Nsamp,
-                        bands=bands_arg,  # reuse detected bands
+                        bands=bands_arg,      # reuse band information
                     )
 
         # accumulate multiplied periodogram

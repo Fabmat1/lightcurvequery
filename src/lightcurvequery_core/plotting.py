@@ -370,7 +370,12 @@ def plot_phot(
     # ----------------------------------------------------- global limits ------
     y_all = np.concatenate(y_collect)
     y_all = y_all[np.isfinite(y_all)]
-    p_lo_glob, p_hi_glob = np.percentile(y_all, [0.5, 99.5])
+    
+    Q1 = np.percentile(y_all, 25)
+    Q3 = np.percentile(y_all, 75)
+    IQR = Q3 - Q1
+    p_lo_glob = Q1 - 1.5 * IQR
+    p_hi_glob = Q3 + 1.5 * IQR
     span_glob = p_hi_glob - p_lo_glob
     ylim_global = (p_lo_glob - 0.05 * span_glob,
                    p_hi_glob + 0.05 * span_glob)
@@ -382,7 +387,11 @@ def plot_phot(
     for tel, arrs in per_tel_y.items():
         y_tel = np.concatenate(arrs)
         y_tel = y_tel[np.isfinite(y_tel)]
-        p_lo_tel, p_hi_tel = np.percentile(y_tel, [0.5, 99.5])
+        Q1 = np.percentile(y_tel, 25)
+        Q3 = np.percentile(y_tel, 75)
+        IQR = Q3 - Q1
+        p_lo_tel = Q1 - 1.5 * IQR
+        p_hi_tel = Q3 + 1.5 * IQR
         span_tel = p_hi_tel - p_lo_tel
 
         if span_tel > 1.5 * span_glob or span_tel < 0.5 * span_glob:

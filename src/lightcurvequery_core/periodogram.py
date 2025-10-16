@@ -462,8 +462,13 @@ def calc_pgrams(
                             # bad fit – silently skip this filter
                             continue
 
+                        # Convert phi from cycles to days
+                        A, phi_cycles, C = pars
+                        phi_days = phi_cycles * mp  # Convert cycles to days
+                        pars_time = [A, phi_days, C]
+
                         # evaluate the model back in TIME space
-                        model_t = sinus_fix_period(mp)(t[mask], *pars)
+                        model_t = sinus_fix_period(mp)(t[mask], *pars_time)
                         C = pars[-1]                   # fitted DC level
 
                         # subtract ONLY the oscillatory part

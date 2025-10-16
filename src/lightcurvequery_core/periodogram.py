@@ -347,6 +347,32 @@ def measure_peak_period_HPD(common_periods, common_power, star, ignore_source=No
     return peak_p, lerr_p, herr_p, (bracket_lo, bracket_hi), meta
 
 
+def get_valid_bands(lc, min_points=10):
+    """
+    Return valid band labels and a mask for filtering the lightcurve.
+    Bands with fewer than min_points datapoints are excluded.
+    
+    Returns:
+        valid_bands: array of band labels that have >= min_points
+        mask: boolean array to filter t, y, dy arrays
+        bands_filtered: filtered band array (or None if single-band)
+    """
+    try:
+        if hasattr(lc, "columns") and (3 in lc.columns):
+            bands = lc[3].to_numpy() if hasattr(lc[3], "to_numpy") else np.asarray(lc[3])
+            if bands.size > 0:
+                unique, counts = np.unique(bands, return_counts=True)
+                valid_bands = unique[counts >= min_points]
+                
+                if len(valid_bands) == 0:
+                    return None, np.zeros(len(bands), dtype=bool), None
+                
+                mask = np.isin(bands, valid_bands)
+                return valid_bands, mask, bands[mask]
+        return None, np.ones(len(lc), dtype=bool), None
+    except Exception:
+        return None, np.ones(len(lc), dtype=bool), None
+
 # ---------------------------------------------------------------- core logic
 def calc_pgrams(
     star: Star,
@@ -362,49 +388,68 @@ def calc_pgrams(
     legend_fontsize=8,
 ):
     common_periods, n_samp = None, 0
+    star.filtered_bands = {}  # Track which bands were filtered per telescope
 
     # determine a common period grid
     for tel, lc in star.lightcurves.items():
         if tel in ignore_source:
             continue
-        psamp = gen_optimal_samples(lc[0].to_numpy(), 20, min_p, max_p, Nsamp)
+        
+        # Get valid bands and mask
+        valid_bands, mask, _ = get_valid_bands(lc)
+        
+        if mask.sum() == 0:
+            print(f"[{star.gaia_id}] Warning: {tel} has no bands with >= 10 points, skipping")
+            star.filtered_bands[tel] = "all_filtered"
+            continue
+            
+        t_filtered = lc[0].to_numpy()[mask]
+        psamp = gen_optimal_samples(t_filtered, 20, min_p, max_p, Nsamp)
+        
         if psamp[-1] > n_samp:
             f0, df, Nf = psamp
             freqs = np.linspace(f0, f0 + df * Nf, Nf)
             common_periods = 1 / freqs
             n_samp = Nf
-    if common_periods is None:   # nothing to do
+            
+    if common_periods is None:
         raise RuntimeError("No lightcurves left to analyse")
     common_power = np.ones_like(common_periods)
 
-    # ------------------------------------------------------------------ loop
+    # Main loop
     row = 0
     for tel, lc in star.lightcurves.items():
         if tel in ignore_source:
             continue
 
         asnp = lambda x: x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
-        # detect multiband labels
-        bands_arg = None
-        try:
-            if hasattr(lc, "columns") and (3 in lc.columns):
-                ba = asnp(lc[3])
-                if ba.size == asnp(lc[0]).size:
-                    is_str = np.fromiter((isinstance(b, (str, np.str_)) for b in ba), dtype=bool, count=ba.size)
-                    if is_str.all():
-                        bands_arg = ba
-        except Exception:
-            bands_arg = None
+        
+        # Get valid bands and apply filter
+        valid_bands, mask, bands_filtered = get_valid_bands(lc)
+        
+        if mask.sum() == 0:
+            print(f"[{star.gaia_id}] Skipping {tel} - no valid bands")
+            continue
+        
+        # Store info about filtered bands
+        if valid_bands is not None:
+            all_bands = np.unique(lc[3].to_numpy())
+            filtered_out = [b for b in all_bands if b not in valid_bands]
+            if filtered_out:
+                star.filtered_bands[tel] = filtered_out
+                print(f"[{star.gaia_id}] {tel}: Filtered out bands {filtered_out} (<10 points)")
+        
+        # Apply mask to all arrays
+        t = asnp(lc[0]).astype(float)[mask]
+        y = asnp(lc[1]).astype(float)[mask]
+        dy = asnp(lc[2]).astype(float)[mask]
 
         power, periods = fast_pgram(
-            asnp(lc[0]).astype(float),
-            asnp(lc[1]).astype(float),
-            asnp(lc[2]).astype(float),
-            min_p, max_p, Nsamp,
-            bands=bands_arg,
+            t, y, dy, min_p, max_p, Nsamp,
+            bands=bands_filtered,
         )
-        # optional pre-whitening for ZTF / ATLAS / BlackGEM
-
+        
+        # Optional pre-whitening for ZTF / ATLAS / BlackGEM
         if whitening:
             aliases = (ztf_aliases if tel == "ZTF" else
                        atlas_aliases if tel == "ATLAS" else
@@ -415,83 +460,63 @@ def calc_pgrams(
                 print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
                 aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
 
-                # copy the light curve once; we will overwrite y in-place
-                t   = asnp(lc[0]).astype(float)
-                y   = asnp(lc[1]).astype(float)
-                dy  = asnp(lc[2]).astype(float)
-                filt = asnp(lc[3]) if bands_arg is not None else None
-
                 for lo, hi in aliases:
                     if (min_p and hi < min_p) or (max_p and lo > max_p):
                         continue
 
-                    # pick the maximum-power period inside the alias window
                     sub = (periods > lo) & (periods < hi)
                     if not sub.any():
                         continue
                     mp = periods[sub][np.argmax(power[sub])]
                     print(f"[{star.gaia_id}] {tel}: Eliminating {mp:.6f} d ...")
 
-                    # ------------------------------------------------------
-                    #  fit a sine in PHASE space, then subtract in TIME space
-                    # ------------------------------------------------------
                     phase = (t % mp) / mp
-                    unique_filters = np.unique(filt) if filt is not None else [None]
+                    unique_filters = np.unique(bands_filtered) if bands_filtered is not None else [None]
 
                     for f in unique_filters:
-                        mask = ((filt == f) if filt is not None else True)
-                        mask = mask & np.isfinite(y) & np.isfinite(dy)
+                        filt_mask = ((bands_filtered == f) if bands_filtered is not None else True)
+                        filt_mask = filt_mask & np.isfinite(y) & np.isfinite(dy)
 
-                        if mask.sum() <= 10:
+                        if filt_mask.sum() <= 10:
                             continue
 
-                        # data to be fitted
-                        x_fit = phase[mask]
-                        y_fit = y[mask]
-                        dy_fit = dy[mask]
+                        x_fit = phase[filt_mask]
+                        y_fit = y[filt_mask]
+                        dy_fit = dy[filt_mask]
 
                         try:
-                            # fit: amplitude, phase, CONSTANT
                             pars, _ = curve_fit(
-                                sinus_fix_period(1.0),   # unit period in phase space
-                                x_fit,
-                                y_fit,
+                                sinus_fix_period(1.0),
+                                x_fit, y_fit,
                                 sigma=dy_fit,
                             )
                         except Exception:
-                            # bad fit – silently skip this filter
                             continue
 
-                        # Convert phi from cycles to days
                         A, phi_cycles, C = pars
-                        phi_days = phi_cycles * mp  # Convert cycles to days
+                        phi_days = phi_cycles * mp
                         pars_time = [A, phi_days, C]
 
-                        # evaluate the model back in TIME space
-                        model_t = sinus_fix_period(mp)(t[mask], *pars_time)
-                        C = pars[-1]                   # fitted DC level
+                        model_t = sinus_fix_period(mp)(t[filt_mask], *pars_time)
+                        C = pars[-1]
+                        y[filt_mask] -= (model_t - C)
 
-                        # subtract ONLY the oscillatory part
-                        y[mask] -= (model_t - C)
+                    # Update the corresponding rows in the original dataframe
+                    lc.loc[mask, 1] = y
 
-                    # write the new fluxes back into the dataframe
-                    lc.loc[:, 1] = y
-
-                    # recompute the periodogram for the next alias pass
                     power, periods = fast_pgram(
-                        t, y, dy,
-                        min_p, max_p, Nsamp,
-                        bands=bands_arg,      # reuse band information
+                        t, y, dy, min_p, max_p, Nsamp,
+                        bands=bands_filtered,
                     )
 
-        # accumulate multiplied periodogram
+        # Accumulate multiplied periodogram
         f = interp1d(periods, power, bounds_error=False, fill_value=0)
         common_power *= f(common_periods)
 
-        # store individual pgrams
+        # Store individual pgrams
         star.periodograms[tel] = (periods, power)
 
-        # ----- plotting of this individual telescope ------------------------
+        # Plotting
         if plot:
             ax = axs[row] if axs is not None else plt.gca()
             col = t_colors.get(tel, 'k') if not plot_as_bg else 'gray'
@@ -500,37 +525,29 @@ def calc_pgrams(
                     label=f"{tel} photometry",
                     zorder=TELESCOPE_ZORDER[tel])
 
-            # confidence levels ---------------------------------------------
+            # Confidence levels
             try:
                 onesig, twosig, threesig = false_alarm_level(
                     [1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
-                    1 / min_p,
-                    lc[0].to_numpy(), lc[1].to_numpy(), lc[2].to_numpy(),
-                    "standard",
+                    1 / min_p, t, y, dy, "standard",
                 )
-                ax.axhline(onesig, ls='--', color='#F7B267',
-                           label=r'$1\sigma$ limit')
-                ax.axhline(twosig, ls='--', color='#F4845F',
-                           label=r'$2\sigma$ limit')
-                ax.axhline(threesig, ls='--', color='#F25C54',
-                           label=r'$3\sigma$ limit')
+                ax.axhline(onesig, ls='--', color='#F7B267', label=r'$1\sigma$ limit')
+                ax.axhline(twosig, ls='--', color='#F4845F', label=r'$2\sigma$ limit')
+                ax.axhline(threesig, ls='--', color='#F25C54', label=r'$3\sigma$ limit')
             except (ValueError, ZeroDivisionError):
-                # fall back silently – no FAP for this panel
                 pass
 
-             # ------------------------------ annotate average TESS crowding metric
+            # Annotate TESS crowding
             if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata:
                 ax.annotate(f"CROWDSAP = {star.metadata['TESS_CROWD']:.2f}",
                     xy=(0.98, 0.95), xycoords='axes fraction',
                     ha='right', va='top', fontsize=9,
                     bbox=dict(facecolor='white', edgecolor='none', alpha=0.6))
 
-            ax.legend(fontsize=legend_fontsize, loc="best") 
-
+            ax.legend(fontsize=legend_fontsize, loc="best")
             row += 1
 
     return common_periods, common_power
-
 
 # ------------------------------------------------------------------ main API
 def plot_common_pgram(

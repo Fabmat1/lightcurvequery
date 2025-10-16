@@ -103,14 +103,30 @@ def _load_multi_band(
     binned: bool,
     normalized: bool,
     fold: bool = True,
+    min_points: int = 10,  # Add this parameter
 ):
+    """Load multi-band data, filtering out bands with fewer than min_points."""
     out_x, out_y, out_e, bands = [], [], [], []
     base_x = lc[0].to_numpy()
+    
     if telescope.upper() == "GAIA":
         base_x += 2455197.5
         base_x = Time(base_x, format="jd").mjd
     
-    for band in lc[3].unique():
+    # Get unique bands and their counts
+    unique_bands, counts = np.unique(lc[3], return_counts=True)
+    valid_bands = unique_bands[counts >= min_points]
+    
+    if len(valid_bands) == 0:
+        print(f"[{star.gaia_id}] Warning: {telescope} has no bands with >= {min_points} points")
+        return [], [], [], []
+    
+    # Filter out bands with too few points
+    filtered_out = unique_bands[counts < min_points]
+    if len(filtered_out) > 0:
+        print(f"[{star.gaia_id}] {telescope}: Skipping bands {list(filtered_out)} (<{min_points} points)")
+    
+    for band in valid_bands:
         sel = lc[3] == band
         x = base_x[sel.to_numpy()]
         y = lc[1][sel].to_numpy()
@@ -319,44 +335,53 @@ def plot_phot(
     ignoreh: bool = IGNOREH,
     dofit: bool = DOFIT,
     show_plots: bool = True,
+    min_points: int = 10,  # Add this parameter
 ):
-    """
-    Light-curve plotting with the following upgrades:
-
-    4. Robust y-limits: central 99 % of points (0.5–99.5 percentile)
-       around the median plus a ±5 % margin.  The same limits are
-       applied to *all* LC panels unless a telescope’s span diverges
-       by more than 50 % from the global one, in which case an
-       individual limit is used and the plot is labelled “(divergent)”.
-    5. No vertical white-space between panels.
-    6. The period used for folding (± error, if available) is annotated
-       on every LC panel.
-    """
-    # ------------------------------------------------------------------ set-up
+    """Light-curve plotting with filter handling."""
+    # Set-up
     ignore_sources = ignore_sources or []
     for src in ignore_sources:
         star.lightcurves.pop(src, None)
 
-    nrows = len(star.lightcurves) + int(add_rv_plot)
-    if nrows == 0:
-        raise RuntimeError("No lightcurves attached to Star object")
-
-    # ----------------------------------------------------- gather y-values ----
-    per_tel_y: dict[str, list[np.ndarray]] = {tel: [] for tel in star.lightcurves}
-    y_collect: list[np.ndarray] = []          # for the GLOBAL statistics
-
+    # First pass: check which telescopes have valid data
+    valid_telescopes = []
     for tel, lc in star.lightcurves.items():
-        if len(lc.columns) < 4:                       # single band ------------
+        if len(lc.columns) < 4:
+            # Single band - always valid if has data
+            if len(lc) > 0:
+                valid_telescopes.append(tel)
+        else:
+            # Multi-band - check if any bands have enough points
+            unique_bands, counts = np.unique(lc[3], return_counts=True)
+            valid_bands = unique_bands[counts >= min_points]
+            # Also apply ignorezi and ignoreh filters
+            valid_bands = [b for b in valid_bands 
+                          if not ((b == "zi" and ignorezi) or (b == "H" and ignoreh))]
+            if len(valid_bands) > 0:
+                valid_telescopes.append(tel)
+
+    nrows = len(valid_telescopes) + int(add_rv_plot)
+    if nrows == 0:
+        raise RuntimeError("No lightcurves with sufficient data points")
+
+    # Gather y-values (only from valid telescopes)
+    per_tel_y: dict[str, list[np.ndarray]] = {tel: [] for tel in valid_telescopes}
+    y_collect: list[np.ndarray] = []
+
+    for tel in valid_telescopes:
+        lc = star.lightcurves[tel]
+        if len(lc.columns) < 4:
             _, y, _ = _load_single_band(
                 lc, star, telescope=tel,
                 binned=binned, normalized=normalized, fold=True
             )
             per_tel_y[tel].append(y)
             y_collect.append(y)
-        else:                                         # multi band -------------
+        else:
             xs, ys, es, bands = _load_multi_band(
                 lc, star, telescope=tel,
-                binned=binned, normalized=normalized, fold=True
+                binned=binned, normalized=normalized, fold=True,
+                min_points=min_points
             )
             for band, arr in zip(bands, ys):
                 if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
@@ -367,7 +392,7 @@ def plot_phot(
     if not y_collect:
         raise RuntimeError("No usable photometric data found.")
 
-    # ----------------------------------------------------- global limits ------
+    # Global limits (rest of the function remains the same)
     y_all = np.concatenate(y_collect)
     y_all = y_all[np.isfinite(y_all)]
     
@@ -380,7 +405,7 @@ def plot_phot(
     ylim_global = (p_lo_glob - 0.05 * span_glob,
                    p_hi_glob + 0.05 * span_glob)
 
-    # ------------------------------------------------ per-telescope limits ----
+    # Per-telescope limits
     ylim_dict: dict[str, tuple[float, float]] = {"global": ylim_global}
     divergent_telescopes: set[str] = set()
 
@@ -395,7 +420,6 @@ def plot_phot(
         span_tel = p_hi_tel - p_lo_tel
 
         if span_tel > 1.5 * span_glob or span_tel < 0.5 * span_glob:
-            # Divergent – use individual limits
             ylim_tel = (p_lo_tel - 0.05 * span_tel,
                         p_hi_tel + 0.05 * span_tel)
             ylim_dict[tel] = ylim_tel
@@ -403,7 +427,7 @@ def plot_phot(
         else:
             ylim_dict[tel] = ylim_global
 
-    # ---------------------------------------------------------- figure & axes
+    # Figure & axes
     if nrows == 1:
         height = 11.69 / 3
     elif nrows == 2:
@@ -413,15 +437,14 @@ def plot_phot(
     else:
         height = 11.69
 
-    # sharey=False to allow individual limits if necessary
     fig, axes = plt.subplots(
         nrows=nrows, ncols=1, figsize=(8.27, height), dpi=100,
         sharex=True, sharey=False
     )
     axes = np.atleast_1d(axes)
-    fig.subplots_adjust(hspace=0)          # remove vertical gaps
+    fig.subplots_adjust(hspace=0)
 
-    # ---------------------------------------------------- optional RV panel
+    # Optional RV panel
     row = 0
     if add_rv_plot:
         phasefoldplot(
@@ -436,7 +459,7 @@ def plot_phot(
         )
         row += 1
 
-    # ------------------------------------------------------------- period text
+    # Period text
     per_string = None
     if star.period is not None:
         if getattr(star, "period_loerr", None) is not None \
@@ -447,12 +470,13 @@ def plot_phot(
         else:
             per_string = f"P = {star.period:.6f} d"
 
-    # ------------------------------------------------ plotting loop ----------
-    for tel, lc in star.lightcurves.items():
+    # Plotting loop (only valid telescopes)
+    for tel in valid_telescopes:
+        lc = star.lightcurves[tel]
         ax = axes[row]
         row += 1
 
-        if len(lc.columns) < 4:                         # single band ---------
+        if len(lc.columns) < 4:
             x, y, e = _load_single_band(
                 lc, star, telescope=tel,
                 binned=binned, normalized=normalized
@@ -464,11 +488,16 @@ def plot_phot(
             ax.legend([label], fontsize=legend_fontsize,
                       loc="lower right").set_zorder(6)
 
-        else:                                           # multi band ----------
+        else:
             xs, ys, es, bands = _load_multi_band(
                 lc, star, telescope=tel,
-                binned=binned, normalized=normalized
+                binned=binned, normalized=normalized,
+                min_points=min_points
             )
+            
+            if len(bands) == 0:
+                continue
+                
             for i, (x, y, e, band) in enumerate(zip(xs, ys, es, bands)):
                 if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
                     continue
@@ -478,7 +507,7 @@ def plot_phot(
                             label=f"{tel} {band} flux")
             ax.legend(fontsize=legend_fontsize, loc="lower right").set_zorder(6)
 
-        # -------------------------- cosmetics --------------------------------
+        # Cosmetics
         ax.set_ylabel("Normalized flux", fontsize=label_fontsize)
         ax.set_xlim(-1, 1)
         ax.set_ylim(*ylim_dict[tel])
@@ -486,7 +515,6 @@ def plot_phot(
         ax.tick_params(labelsize=tick_fontsize)
 
         if tel in divergent_telescopes:
-            # small note next to y-axis
             ax.annotate("(divergent)", xy=(1.02, 0.5), xycoords='axes fraction',
                         rotation=90, va='center', ha='left',
                         fontsize=8, color='crimson')
@@ -498,7 +526,7 @@ def plot_phot(
                         bbox=dict(facecolor='white',
                                   edgecolor='none', alpha=0.6))
 
-    # hide duplicate x-tick labels (all but bottom LC panel)
+    # Hide duplicate x-tick labels
     for ax in axes[:-1]:
         ax.tick_params(labelbottom=False)
 
@@ -507,7 +535,7 @@ def plot_phot(
     plt.suptitle(f"Lightcurve for Gaia DR3 {star.gaia_id}")
     plt.tight_layout()
 
-    # save & show -------------------------------------------------------------
+    # Save & show
     Path("lcplots").mkdir(exist_ok=True)
     plt.savefig(f"lcplots/{star.gaia_id}_lcplot.pdf",
                 bbox_inches='tight', pad_inches=0)

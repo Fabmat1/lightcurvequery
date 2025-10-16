@@ -230,7 +230,7 @@ def getatlaslc(gaia_id):
     • Finished tasks stay in the cache so that subsequent runs will keep
       re-using the same task/result.  The entry is purged only when both
       the queue record *and* the result file have vanished on the server.  
-    • Polling is limited to 10 minutes.
+    • Polling is limited to 20 minutes.
     """
     print(f"[{gaia_id}] Getting ATLAS data…")
 
@@ -239,7 +239,7 @@ def getatlaslc(gaia_id):
         print("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR shell rc FILE:")
         print('   export ATLASFORCED_SECRET_KEY="YOURTOKEN"')
         return False
-    print("ATLAS: Using stored token")
+    print(f"[{gaia_id}] ATLAS: Using stored token")
 
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     cache = _load_atlas_cache()
@@ -295,7 +295,7 @@ def getatlaslc(gaia_id):
                 task_id = task_url.rstrip("/").split("/")[-1]
                 cache[str(gaia_id)] = task_id
                 _save_atlas_cache(cache)
-                print(f"The task URL is {task_url}")
+                print(f"[{gaia_id}] The task URL is {task_url}")
                 break
 
             elif resp.status_code == 429:
@@ -304,10 +304,10 @@ def getatlaslc(gaia_id):
                 m_min = re.search(r"available in (\d+) minutes", detail)
                 wait = int(m_sec.group(1)) if m_sec else \
                        int(m_min.group(1)) * 60 if m_min else 10
-                print(f"429 Too Many Requests – waiting {wait}s")
+                print(f"[{gaia_id}] 429 Too Many Requests – waiting {wait}s")
                 time.sleep(wait)
             else:
-                print(f"ERROR {resp.status_code}\n{resp.text}")
+                print(f"[{gaia_id}] ERROR {resp.status_code}\n{resp.text}")
                 return False
     # ---------------------------------------------------------------------
     # 3) ——— Poll the task until it finishes (unless result_url already set)
@@ -316,29 +316,29 @@ def getatlaslc(gaia_id):
         taskstarted_printed = False
 
         while True:
-            if time.monotonic() - t0 > 600:          # 10-min timeout
-                print(f"[{gaia_id}] Timed-out after 10 min; will try later.")
+            if time.monotonic() - t0 > 1200:          # 20-min timeout
+                print(f"[{gaia_id}] Timed-out after 20 min; will try later.")
                 return False
 
             with requests.Session() as s:
                 r = s.get(task_url, headers=headers)
 
             if r.status_code != 200:
-                print(f"ERROR {r.status_code}\n{r.text}")
+                print(f"[{gaia_id}] ERROR {r.status_code}\n{r.text}")
                 return False
 
             data = r.json()
             if data["finishtimestamp"]:
                 result_url = data["result_url"]
-                print(f"Task is complete with results at {result_url}")
+                print(f"[{gaia_id}] Task is complete with results at {result_url}")
                 break
             elif data["starttimestamp"]:
                 if not taskstarted_printed:
-                    print(f"Task is running (started at {data['starttimestamp']})")
+                    print(f"[{gaia_id}] Task is running (started at {data['starttimestamp']})")
                     taskstarted_printed = True
                 time.sleep(2)
             else:
-                print(f"Waiting for job to start "
+                print(f"[{gaia_id}] Waiting for job to start "
                       f"(queued at {data['timestamp']})")
                 time.sleep(4)
     # ---------------------------------------------------------------------
@@ -411,8 +411,13 @@ def getbglc(gaia_id):
         "detections"
     ]
 
-    # Execute the command without printing anything
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    try:
+        # Execute the command without printing anything
+        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except subprocess.CalledProcessError:
+        print(f"[{gaia_id}] You have no access to the BlackGEM database.")
+        return False
+
 
     try:
         # Read the generated output.csv
@@ -422,10 +427,10 @@ def getbglc(gaia_id):
         cols = ["MJD_OBS", "FNU_OPT", "FNUERRTOT_OPT", "FILTER"]
         df_selected = df[cols]
         if len(df_selected) <= 10:
-            print(f"Not enough BlackGEM data ({len(df_selected)}) to save.")
+            print(f"[{gaia_id}] Not enough BlackGEM data ({len(df_selected)}) to save.")
             raise FileNotFoundError
         elif len(df_selected) < 50:
-            print(f"Warning: Only {len(df_selected)} BlackGEM data points available.")
+            print(f"[{gaia_id}] Warning: Only {len(df_selected)} BlackGEM data points available.")
 
         # Save the DataFrame to bg_lc.txt without headers and index
         df_selected.to_csv(output_txt, sep=",", header=False, index=False)

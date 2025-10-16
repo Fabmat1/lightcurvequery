@@ -112,7 +112,6 @@ def _load_multi_band(
     if telescope.upper() == "GAIA" and lc[0].mean() < 25000: # Prevent applying base conversion more than once (Gaia timestamps are never > 4000 or so)
         base_x += 2455197.5
         base_x = Time(base_x, format="jd").mjd
-        print(base_x)
     # Get unique bands and their counts
     unique_bands, counts = np.unique(lc[3], return_counts=True)
     valid_bands = unique_bands[counts >= min_points]

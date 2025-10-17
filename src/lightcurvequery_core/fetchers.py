@@ -236,10 +236,28 @@ def getatlaslc(gaia_id):
 
     token = os.environ.get("ATLASFORCED_SECRET_KEY")
     if not token:
-        print("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR shell rc FILE:")
-        print('   export ATLASFORCED_SECRET_KEY="YOURTOKEN"')
-        return False
-    print(f"[{gaia_id}] ATLAS: Using stored token")
+        # Try loading from ~/.atlaskey file
+        atlas_key_path = os.path.expanduser("~/.atlaskey")
+        if os.path.exists(atlas_key_path):
+            try:
+                with open(atlas_key_path, 'r') as f:
+                    token = f.read().strip()
+                if token:
+                    print(f"[{gaia_id}] ATLAS: Using token from ~/.atlaskey")
+                else:
+                    token = None
+            except Exception as e:
+                print(f"[{gaia_id}] ATLAS: Error reading ~/.atlaskey: {e}")
+                token = None
+        
+        if not token:
+            print("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR shell rc FILE:")
+            print('   export ATLASFORCED_SECRET_KEY="YOURTOKEN"')
+            print("OR save it to ~/.atlaskey:")
+            print('   echo "YOURTOKEN" > ~/.atlaskey')
+            return False
+    else:
+        print(f"[{gaia_id}] ATLAS: Using stored token")
 
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     cache = _load_atlas_cache()
@@ -469,7 +487,7 @@ def gettesslc(gaia_id):
     try:
         data = Observations.get_product_list(obsTable)
     except InvalidQueryError as e:
-        print("No TESS lightcurve available!")
+        print(f"[{gaia_id}] No TESS lightcurve available!")
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:

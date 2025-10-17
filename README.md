@@ -38,13 +38,17 @@ pip install -e .                 # editable install
 ```
 
 Optional extras  
-• ZTF: create a `~/.ztfquery` config (interactive on first run)  
-• ATLAS forced photometry: export your personal API token to use ATLAS photometry (add this to your `.bashrc`, `.zshrc` or similar)  
-  `export ATLASFORCED_SECRET_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxx"`  
+- ZTF: create a `~/.ztfquery` config (interactive on first run)  
+- ATLAS forced photometry: export your personal API token to use ATLAS photometry (add this to your `.bashrc`, `.zshrc` or similar)  
+  `export ATLASFORCED_SECRET_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxx"`
+  ATLAS tokens can also be stored in `~/.atlaskey`
+
 
 ---
 
 ## Quick start
+
+Some usage examples:
 
 ```bash
 # Fetch everything that is publicly available for Gaia DR3 XXXXXXXXXXXXXXXXXXX
@@ -159,6 +163,7 @@ Bug reports, feature requests or pull requests are welcome!
 Open an issue on GitHub or contact me directly.
 
 If you use lightcurvequery in your research, please include it in the acknowledgments.
+I leave the wording up to you, since I hate forced acknowledgement blocks.
 
 ---
 

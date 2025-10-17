@@ -8,6 +8,9 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from .process import process_lightcurves
 from .utils import bcolors
+from .terminal_style import *
+from .update_checker import *
+
 try:
     from astroquery.gaia import Gaia
 except ModuleNotFoundError:
@@ -83,7 +86,7 @@ def validate_gaia_id(gid: str):
         if len(gid) < 10:
             raise ValueError
     except ValueError:
-        print(f"Invalid Gaia ID: {gid}")
+        print_error(f"Invalid Gaia ID: {gid}")
         sys.exit(1)
 
 
@@ -97,20 +100,20 @@ def load_gaia_ids_from_file(path) -> List[Tuple[str, None]]:
                     validate_gaia_id(line)
                     ids.append((line, None))
     except FileNotFoundError:
-        print(f"File not found: {path}")
+        print_error(f"File not found: {path}")
         sys.exit(1)
     return ids
 
 
 def query_gaia_by_coordinates(coord: SkyCoord) -> str:
     if Gaia is None:
-        print("astroquery.gaia not installed – cannot resolve coordinates.")
+        print_error("astroquery.gaia not installed – cannot resolve coordinates.")
         sys.exit(1)
 
     job = Gaia.cone_search_async(coord, radius=5*u.arcsec)
     res = job.get_results()
     if len(res) == 0:
-        print("No Gaia source within 5\".")
+        print_error("No Gaia source within 5\".")
         sys.exit(1)
     return str(res[0]["SOURCE_ID"])
 
@@ -133,7 +136,7 @@ def resolve_targets(args) -> List[Tuple[str, SkyCoord | None]]:
 
     # positional
     if not args.targets:
-        print("No targets provided.")
+        print_error("No targets provided.")
         sys.exit(1)
 
     if len(args.targets) == 2:
@@ -156,6 +159,8 @@ def resolve_targets(args) -> List[Tuple[str, SkyCoord | None]]:
 
 # ────────────────────────────────────────────────────────────────────
 def main():
+    check_for_update(current_version="0.0.1", repo="Fabmat1/lightcurvequery")
+
     parser = parse_arguments()
     args = parser.parse_args()
 
@@ -165,7 +170,7 @@ def main():
     total = len(targets)
     for idx, (gid, coord) in enumerate(targets, 1):
         if total > 1:
-            print(f"\n{'='*60}\nTarget {idx}/{total}: Gaia DR3 {gid}\n{'='*60}")
+            print_header(f"Target {idx}/{total}: Gaia DR3 {gid}")
 
         try:
             process_lightcurves(
@@ -192,11 +197,11 @@ def main():
                 trim_tess=args.trim_tess,
             )
         except Exception as exc:
-            print(f"Error while processing {gid}: {exc}")
+            print_error(f"Error while processing {gid}: {exc}", gid)
             if total == 1:
                 raise
     if total > 1:
-        print(f"\nCompleted {total} targets.")
+        print_success(f"\nCompleted {total} targets.")
 
 if __name__ == "__main__":
     main()

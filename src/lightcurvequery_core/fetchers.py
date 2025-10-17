@@ -36,6 +36,7 @@ from .utils import (
     magerr_to_fluxerr,
     ensure_directory_exists,
 )
+from .terminal_style import *
 
 import json
 
@@ -119,21 +120,21 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     from .plotting import plot_sky_coords_window        # local import avoids circularity
 
     coord = SkyCoord.from_name(f'GAIA DR3 {gaia_id}')
-    print(f"[{gaia_id}] Getting ZTF data (outer radius {outer_arcsec}″)…")
+    print_info(f"Getting ZTF data (outer radius {outer_arcsec}″)...", gaia_id, "ZTF")
 
     lcq = lightcurve.LCQuery().from_position(coord.ra.deg, coord.dec.deg, outer_arcsec)
 
     try:
         if str(lcq.data['ra'].mean()).lower() == "nan":
-            print(f"[{gaia_id}] No ZTF data available for this star!")
+            print_warning(f"No ZTF data available for this star!", gaia_id)
             if not os.path.isdir(f"lightcurves/{gaia_id}"):
                 os.mkdir(f"lightcurves/{gaia_id}")
             with open(f"lightcurves/{gaia_id}/ztf_lc.txt", "w") as file:
                 file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
             return False
     except KeyError as e:
-        print(lcq.data)
-        print(f"Exception while calling getztflc with gid={gid}:\n{traceback.format_exc()}")
+        #print(lcq.data)
+        print_error(f"Exception while calling getztflc with gid={gid}:\n{traceback.format_exc()}", gaia_id, "ZTF")
         return False
 
     
@@ -143,13 +144,13 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     # 2) Filter out any bad/missing RA or DEC
     mask_finite = np.isfinite(tbl['ra']) & np.isfinite(tbl['dec'])
     if not np.any(mask_finite):
-        print(f"[{gaia_id}] All RA/DEC values are invalid — skipping.")
+        print_warning(f"All RA/DEC values are invalid — skipping.", gaia_id, "ZTF")
         return False
 
     tbl = tbl[mask_finite]
     n_removed = len(mask_finite) - np.count_nonzero(mask_finite)
     if n_removed:
-        print(f"[{gaia_id}] Filtered out {n_removed} rows with invalid coordinates")
+        print_info(f"Filtered out {n_removed} rows with invalid coordinates", gaia_id, "ZTF")
 
     idx_closest = np.argmin(zc.separation(coord))
     closest_coord = zc[idx_closest]
@@ -159,8 +160,8 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     if do_preview:
         plot_sky_coords_window(gaia_id, zc, coord, arcsec_radius=inner_arcsec)
 
-    print(f"[{gaia_id}] Best match {zc.separation(coord)[idx_closest].arcsec:.2f}″; "
-          f"keeping {len(filtered_tbl)} points within {inner_arcsec}″.")
+    print_info(f"Best match {zc.separation(coord)[idx_closest].arcsec:.2f}″; "
+          f"keeping {len(filtered_tbl)} points within {inner_arcsec}″.", gaia_id, "ZTF")
 
     mask = filtered_tbl["catflags"] == 0
 
@@ -168,14 +169,14 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     dates = data["mjd"].to_numpy()
 
     if len(dates) == 0:
-        print(f"[{gaia_id}] No ZTF data available for this star!")
+        print_warning(f"No ZTF data available for this star!", gaia_id, "ZTF")
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/ztf_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         return False
     else:
-        print(f"[{gaia_id}] Got {len(dates)} samples of ZTF data")
+        print_info(f"Got {len(dates)} samples of ZTF data", gaia_id, "ZTF")
     mags = data["mag"].to_numpy()
     mag_err = data["magerr"].to_numpy()
     filters = data["filtercode"].to_numpy()
@@ -197,7 +198,7 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     if not os.path.isdir(f"lightcurves/{gaia_id}"):
         os.mkdir(f"lightcurves/{gaia_id}")
     table.to_csv(f"lightcurves/{gaia_id}/ztf_lc.txt", index=False, header=False)
-    print(f"[{gaia_id}] ZTF data saved!")
+    print_success(f"ZTF data saved!", gaia_id, "ZTF")
     return True
 
 
@@ -216,7 +217,7 @@ def _save_atlas_cache(cache: dict) -> None:
         with open(CACHE_FILE, "w") as fh:
             json.dump(cache, fh)
     except Exception as exc:
-        print(f"Warning: could not write ATLAS cache: {exc}")
+        print_warning(f"Warning: could not write ATLAS cache: {exc}", None, "ATLAS")
 # ---------------------------------------------------------------------------
 
 def getatlaslc(gaia_id):
@@ -232,7 +233,7 @@ def getatlaslc(gaia_id):
       the queue record *and* the result file have vanished on the server.  
     • Polling is limited to 20 minutes.
     """
-    print(f"[{gaia_id}] Getting ATLAS data…")
+    print_info(f"Getting ATLAS data…", gaia_id, "ATLAS")
 
     token = os.environ.get("ATLASFORCED_SECRET_KEY")
     if not token:
@@ -243,21 +244,21 @@ def getatlaslc(gaia_id):
                 with open(atlas_key_path, 'r') as f:
                     token = f.read().strip()
                 if token:
-                    print(f"[{gaia_id}] ATLAS: Using token from ~/.atlaskey")
+                    print_info(f"Using token from ~/.atlaskey", gaia_id, "ATLAS")
                 else:
                     token = None
             except Exception as e:
-                print(f"[{gaia_id}] ATLAS: Error reading ~/.atlaskey: {e}")
+                print_warning(f"Error reading ~/.atlaskey: {e}", gaia_id, "ATLAS")
                 token = None
         
         if not token:
-            print("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR shell rc FILE:")
-            print('   export ATLASFORCED_SECRET_KEY="YOURTOKEN"')
-            print("OR save it to ~/.atlaskey:")
-            print('   echo "YOURTOKEN" > ~/.atlaskey')
+            print_warning("GENERATE AN ATLAS TOKEN AND ADD IT TO YOUR shell rc FILE:", gaia_id, "ATLAS")
+            print_warning('   export ATLASFORCED_SECRET_KEY="YOURTOKEN"', gaia_id, "ATLAS")
+            print_warning("OR save it to ~/.atlaskey:", gaia_id, "ATLAS")
+            print_warning('   echo "YOURTOKEN" > ~/.atlaskey', gaia_id, "ATLAS")
             return False
     else:
-        print(f"[{gaia_id}] ATLAS: Using stored token")
+        print_info(f"ATLAS: Using stored token", gaia_id, "ATLAS")
 
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     cache = _load_atlas_cache()
@@ -271,13 +272,13 @@ def getatlaslc(gaia_id):
     if task_id:
         task_url = f"{ATLASBASEURL}/queue/{task_id}/"
         result_url = f"{ATLASBASEURL}/static/results/job{task_id}.txt"
-        print(f"[{gaia_id}] Found cached task {task_id}")
+        print_info(f"Found cached task {task_id}", gaia_id, "ATLAS")
 
         # 1a) Does the results file still exist?
         with requests.Session() as s:
             head = s.head(result_url, headers=headers)
         if head.status_code == 200:
-            print(f"[{gaia_id}] Result already on server – downloading")
+            print_info(f"Result already on server – downloading", gaia_id, "ATLAS")
             # go straight to the download step further below
         else:
             # 1b) Results file is gone – check if the queue entry still exists
@@ -285,8 +286,8 @@ def getatlaslc(gaia_id):
                 r = s.get(task_url, headers=headers)
 
             if r.status_code == 404:
-                print(f"[{gaia_id}] Cached task vanished on server – "
-                      "submitting a new one")
+                print_info(f"Cached task vanished on server – "
+                      "submitting a new one", gaia_id, "ATLAS")
                 cache.pop(str(gaia_id), None)
                 _save_atlas_cache(cache)
                 task_id = None
@@ -313,7 +314,7 @@ def getatlaslc(gaia_id):
                 task_id = task_url.rstrip("/").split("/")[-1]
                 cache[str(gaia_id)] = task_id
                 _save_atlas_cache(cache)
-                print(f"[{gaia_id}] The task URL is {task_url}")
+                print_info(f"The task URL is {task_url}", gaia_id, "ATLAS")
                 break
 
             elif resp.status_code == 429:
@@ -322,10 +323,10 @@ def getatlaslc(gaia_id):
                 m_min = re.search(r"available in (\d+) minutes", detail)
                 wait = int(m_sec.group(1)) if m_sec else \
                        int(m_min.group(1)) * 60 if m_min else 10
-                print(f"[{gaia_id}] 429 Too Many Requests – waiting {wait}s")
+                print_warning(f"429 Too Many Requests – waiting {wait}s", gaia_id, "ATLAS")
                 time.sleep(wait)
             else:
-                print(f"[{gaia_id}] ERROR {resp.status_code}\n{resp.text}")
+                print_error(f"ERROR {resp.status_code}\n{resp.text}", gaia_id, "ATLAS")
                 return False
     # ---------------------------------------------------------------------
     # 3) ——— Poll the task until it finishes (unless result_url already set)
@@ -335,29 +336,29 @@ def getatlaslc(gaia_id):
 
         while True:
             if time.monotonic() - t0 > 1200:          # 20-min timeout
-                print(f"[{gaia_id}] Timed-out after 20 min; will try later.")
+                print_error(f"Timed-out after 20 min; will try later.", gaia_id, "ATLAS")
                 return False
 
             with requests.Session() as s:
                 r = s.get(task_url, headers=headers)
 
             if r.status_code != 200:
-                print(f"[{gaia_id}] ERROR {r.status_code}\n{r.text}")
+                print_error(f"ERROR {r.status_code}\n{r.text}", gaia_id, "ATLAS")
                 return False
 
             data = r.json()
             if data["finishtimestamp"]:
                 result_url = data["result_url"]
-                print(f"[{gaia_id}] Task is complete with results at {result_url}")
+                print_info(f"Task is complete with results at {result_url}", gaia_id, "ATLAS")
                 break
             elif data["starttimestamp"]:
                 if not taskstarted_printed:
-                    print(f"[{gaia_id}] Task is running (started at {data['starttimestamp']})")
+                    print_info(f"Task is running (started at {data['starttimestamp']})", gaia_id, "ATLAS")
                     taskstarted_printed = True
                 time.sleep(2)
             else:
-                print(f"[{gaia_id}] Waiting for job to start "
-                      f"(queued at {data['timestamp']})")
+                print_info(f"Waiting for job to start "
+                      f"(queued at {data['timestamp']})", gaia_id, "ATLAS")
                 time.sleep(4)
     # ---------------------------------------------------------------------
     # 4) ——— Download the result text and write atlas_lc.txt ————————
@@ -366,7 +367,7 @@ def getatlaslc(gaia_id):
 
     df = pd.read_csv(StringIO(textdata.replace("###", "")), sep=r"\s+")
 
-    #print(f"[{gaia_id}] Got {len(df)} points of ATLAS data!")
+    #print(f" Got {len(df)} points of ATLAS data!")
 
     # --------------- quality mask (unchanged) ----------------------------
     good = (
@@ -403,7 +404,7 @@ def getatlaslc(gaia_id):
     outdir = f"lightcurves/{gaia_id}"
     os.makedirs(outdir, exist_ok=True)
     table.to_csv(f"{outdir}/atlas_lc.txt", index=False, header=False)
-    print(f"[{gaia_id}] {len(table)} points of ATLAS data saved! ({sum(~good)} discarded)")
+    print_success(f" {len(table)} points of ATLAS data saved! ({sum(~good)} discarded)", gaia_id, "ATLAS")
 
     # Keep the finished task in the cache so it can be re-used next time
     # (nothing to do – we never removed it).
@@ -433,7 +434,7 @@ def getbglc(gaia_id):
         # Execute the command without printing anything
         subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     except subprocess.CalledProcessError:
-        print(f"[{gaia_id}] You have no access to the BlackGEM database.")
+        print_error(f"You have no access to the BlackGEM database.", gaia_id, "BLACKGEM")
         return False
 
 
@@ -445,14 +446,14 @@ def getbglc(gaia_id):
         cols = ["MJD_OBS", "FNU_OPT", "FNUERRTOT_OPT", "FILTER"]
         df_selected = df[cols]
         if len(df_selected) <= 10:
-            print(f"[{gaia_id}] Not enough BlackGEM data ({len(df_selected)}) to save.")
+            print_error(f"Not enough BlackGEM data ({len(df_selected)}) to save.", gaia_id, "BLACKGEM")
             raise FileNotFoundError
         elif len(df_selected) < 50:
-            print(f"[{gaia_id}] Warning: Only {len(df_selected)} BlackGEM data points available.")
+            print_warning(f"Warning: Only {len(df_selected)} BlackGEM data points available.", gaia_id, "BLACKGEM")
 
         # Save the DataFrame to bg_lc.txt without headers and index
         df_selected.to_csv(output_txt, sep=",", header=False, index=False)
-        print(f"[{gaia_id}] Got BlackGEM data!")
+        print_success(f"Got BlackGEM data!", gaia_id, "BLACKGEM")
         os.remove(output_csv)
         return True
     except FileNotFoundError:
@@ -460,25 +461,25 @@ def getbglc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/bg_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
-        print(f"[{gaia_id}] No BlackGEM data found!")
+        print_error(f"No BlackGEM data found!", gaia_id, "BLACKGEM")
         return False
 
 
 
 def gettesslc(gaia_id):
-    print(f"[{gaia_id}] Getting MAST data...")
+    print_info(f"Getting MAST data...", gaia_id, "TESS")
     tic = get_tic(gaia_id)
 
 
     if "No TIC" in tic or "Error" in tic:
-        print(bcolors.FAIL+tic+bcolors.ENDC)
+        print_error(f"Invalid TIC: {tic}.", gaia_id, "TESS")
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         return False
     else:
-        print(f"[{gaia_id}] TIC is {tic}.")
+        print_info(f"TIC is {tic}.", gaia_id, "TESS")
 
     obsTable = Observations.query_criteria(dataproduct_type="timeseries",
                                            project="TESS",
@@ -487,7 +488,7 @@ def gettesslc(gaia_id):
     try:
         data = Observations.get_product_list(obsTable)
     except InvalidQueryError as e:
-        print(f"[{gaia_id}] No TESS lightcurve available!")
+        print_warning(f"No TESS lightcurve available!", gaia_id, "TESS")
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
@@ -499,7 +500,7 @@ def gettesslc(gaia_id):
     flux_errors = []
     crowdsaps = []
 
-    print(f"[{gaia_id}] Looking for short cadence data...")
+    print_info(f" Looking for short cadence data...", gaia_id, "TESS")
     short_c_lc = Observations.download_products(data, productSubGroupDescription="FAST-LC")
     
     used_paths = []
@@ -512,14 +513,13 @@ def gettesslc(gaia_id):
             crowdsaps.append(cs2)
             used_paths.append(s.replace("-a_fast-lc.fits", "-s_lc.fits").replace("-a_fast", "-s"))
 
-    print(f"[{gaia_id}] Looking for long cadence data...")
+    print_info(f"Looking for long cadence data...", gaia_id, "TESS")
     long_c_lc = Observations.download_products(data, productSubGroupDescription="LC")
 
     if long_c_lc is not None:
         for l in long_c_lc["Local Path"]:
-            print(l, "\n", used_paths)
             if l in used_paths:
-                print("Short cadence data used already for TESS, skipping the long cadence data: ", l)
+                print_info(f"Short cadence data used already for TESS, skipping the long cadence data: {l}", gaia_id, "TESS")
                 continue
             t1, f1, ef1, cs1 = opentessfile(l)
             times.append(t1)
@@ -527,14 +527,11 @@ def gettesslc(gaia_id):
             flux_errors.append(ef1)
             crowdsaps.append(cs1)
 
-    print(f"[{gaia_id}] Looking for FFIs...")
+    print_info(f"Looking for FFIs...", gaia_id, "TESS")
     search_result = lk.search_tesscut(f'Gaia DR3{gaia_id}')
-    print(f"[{gaia_id}] {len(search_result)} FFI datasets found!")
+    print_info(f"{len(search_result)} FFI datasets found!", gaia_id, "TESS")
     if len(search_result) != 1 and search_result is not None:
-        print(f"[{gaia_id}] Downloading TESS FFIs is not implemented yet, sorry!") #TODO: implement downloading
-        # print(f"[{gaia_id}] Downloading TESS FFI...")
-        # ffi_download = search_result.download(cutout_size=10)
-
+        print_warning(f"Downloading TESS FFIs is not implemented yet, sorry!", gaia_id, "TESS") #TODO: implement downloading
 
     try:
         times = np.concatenate(times)
@@ -557,13 +554,13 @@ def gettesslc(gaia_id):
         # can be picked up later without having to re-open the FITSes.
         with open(f"lightcurves/{gaia_id}/tess_crowdsap.txt", 'w') as fh:
             fh.write(f"{avg_crowd:.6f}\n")
-        print(f"[{gaia_id}] Got {len(times)} datapoints")
+        print_success(f"Got {len(times)} datapoints", gaia_id, "TESS")
     except ValueError:
         if not os.path.isdir(f"lightcurves/{gaia_id}"):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
-        print("TESS data error!")
+        print_error("TESS data error!", gaia_id, "TESS")
         return False
 
 
@@ -586,7 +583,7 @@ def gettesslc(gaia_id):
             os.mkdir(f"lightcurves/{gaia_id}")
         with open(f"lightcurves/{gaia_id}/tess_lc.txt", "w") as file:
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
-        print("No TESS data found!")
+        print_error("No TESS data found!", gaia_id, "TESS")
         return False
 
 
@@ -611,7 +608,7 @@ def getgaialc(gaia_id):
         table = table[table["Source"] == int(gaia_id)]
         
         if len(table) == 0:
-            print("No valid Gaia data found after filtering!")
+            print_error("No valid Gaia data found after filtering!", gaia_id, "GAIA")
             # Create empty CSV with proper headers
             empty_df = pd.DataFrame(columns=['MJD', 'Flux', 'Flux_error', 'Filter'])
             empty_df.to_csv(f"lightcurves/{gaia_id}/gaia_lc.txt", index=False, header=False)
@@ -660,17 +657,17 @@ def getgaialc(gaia_id):
             
             # Save as CSV
             lc_df.to_csv(f"lightcurves/{gaia_id}/gaia_lc.txt", index=False, header=False)
-            print(f"[{gaia_id}] Saved {len(lc_df)} Gaia photometric measurements")
+            print_success(f" Saved {len(lc_df)} Gaia photometric measurements", gaia_id, "GAIA")
             return True
         else:
-            print(f"[{gaia_id}] No valid photometric measurements found!")
+            print_error(f"No valid photometric measurements found!", gaia_id, "GAIA")
             # Create empty CSV with proper headers
             empty_df = pd.DataFrame(columns=['MJD', 'Flux', 'Flux_error', 'Filter'])
             empty_df.to_csv(f"lightcurves/{gaia_id}/gaia_lc.txt", index=False, header=False)
             return False
             
     else:
-        print(f"[{gaia_id}] No Gaia data found!")
+        print_error(f"No Gaia data found!", gaia_id, "GAIA")
         # Create empty CSV with proper headers
         empty_df = pd.DataFrame(columns=['MJD', 'Flux', 'Flux_error', 'Filter'])
         empty_df.to_csv(f"lightcurves/{gaia_id}/gaia_lc.txt", index=False, header=False)

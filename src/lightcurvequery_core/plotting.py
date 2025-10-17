@@ -25,6 +25,7 @@ import matplotlib
 
 
 from .star import Star
+from .terminal_style import *
 
 # ---------------------------------------------------------------------- setup
 fm.findSystemFonts(fontpaths=None, fontext='ttf')
@@ -117,13 +118,13 @@ def _load_multi_band(
     valid_bands = unique_bands[counts >= min_points]
     
     if len(valid_bands) == 0:
-        print(f"[{star.gaia_id}] Warning: {telescope} has no bands with >= {min_points} points")
+        print_warning(f"Warning: {telescope} has no bands with >= {min_points} points", star.gaia_id, telescope)
         return [], [], [], []
     
     # Filter out bands with too few points
     filtered_out = unique_bands[counts < min_points]
     if len(filtered_out) > 0:
-        print(f"[{star.gaia_id}] {telescope}: Skipping bands {list(filtered_out)} (<{min_points} points)")
+        print_info(f"Skipping bands {list(filtered_out)} (<{min_points} points)", star.gaia_id, telescope)
     
     for band in valid_bands:
         sel = lc[3] == band
@@ -314,9 +315,9 @@ def phasefoldplot(star: Star, N_samples=5000, title_fontsize=14, label_fontsize=
                    np.array(
                        [[star.amplitude, star.period, star.offset, star.phase], [*errs]]
                    ))
-        print(np.array(
-            [[star.amplitude, star.period, star.offset, star.phase], [*errs]]
-        ))
+        #print(np.array(
+        #    [[star.amplitude, star.period, star.offset, star.phase], [*errs]]
+        #))
 
 
 def plot_phot(

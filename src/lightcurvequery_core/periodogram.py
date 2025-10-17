@@ -27,7 +27,7 @@ from astropy.timeseries import LombScargle, LombScargleMultiband
 
 from .star import Star
 from .utils import t_colors, ensure_directory_exists, sinusoid
-
+from .terminal_style import *
 
 # ---------------------------------------------------------------------- fonts
 try:
@@ -399,7 +399,7 @@ def calc_pgrams(
         valid_bands, mask, _ = get_valid_bands(lc)
         
         if mask.sum() == 0:
-            print(f"[{star.gaia_id}] Warning: {tel} has no bands with >= 10 points, skipping")
+            print_warning(f"{tel} has no bands with >= 10 points, skipping", star.gaia_id, tel)
             star.filtered_bands[tel] = "all_filtered"
             continue
             
@@ -428,7 +428,7 @@ def calc_pgrams(
         valid_bands, mask, bands_filtered = get_valid_bands(lc)
         
         if mask.sum() == 0:
-            print(f"[{star.gaia_id}] Skipping {tel} - no valid bands")
+            print_warning(f"Skipping {tel} - no valid bands", star.gaia_id, tel)
             continue
         
         # Store info about filtered bands
@@ -437,7 +437,7 @@ def calc_pgrams(
             filtered_out = [b for b in all_bands if b not in valid_bands]
             if filtered_out:
                 star.filtered_bands[tel] = filtered_out
-                print(f"[{star.gaia_id}] {tel}: Filtered out bands {filtered_out} (<10 points)")
+                print_info(f"{tel}: Filtered out bands {filtered_out} (<10 points)", star.gaia_id, tel)
         
         # Apply mask to all arrays
         t = asnp(lc[0]).astype(float)[mask]
@@ -457,7 +457,7 @@ def calc_pgrams(
                        [])
 
             if aliases:
-                print(f"[{star.gaia_id}] Pre-whitening for {tel}...")
+                print_info(f"Pre-whitening for {tel}...", star.gaia_id, tel)
                 aliases = sorted(aliases, key=alias_key_wrapper(periods, power))
 
                 for lo, hi in aliases:
@@ -468,7 +468,7 @@ def calc_pgrams(
                     if not sub.any():
                         continue
                     mp = periods[sub][np.argmax(power[sub])]
-                    print(f"[{star.gaia_id}] {tel}: Eliminating {mp:.6f} d ...")
+                    print_info(f"{tel}: Eliminating {mp:.6f} d ...", star.gaia_id, tel)
 
                     phase = (t % mp) / mp
                     unique_filters = np.unique(bands_filtered) if bands_filtered is not None else [None]
@@ -656,8 +656,8 @@ def plot_common_pgram(
         plt.close('all')
         
     # --------- console output & bookkeeping ----------------------------------
-    print(f"[{star.gaia_id}] Measured period: "
-          f"{peak_p:.6f} (+{plus:.6f} / -{minus:.6f}) d")
+    print_success(f"Measured period: "
+          f"{peak_p:.6f} (+{plus:.6f} / -{minus:.6f}) d", star.gaia_id)
 
     np.savetxt(f"./periodograms/{star.gaia_id}/multiplied_pgram.txt",
                np.vstack((common_periods, common_power)).T, delimiter=",")

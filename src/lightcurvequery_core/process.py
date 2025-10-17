@@ -27,6 +27,7 @@ from .utils import ensure_directory_exists
 from .fetchers import FETCHERS, getnone
 from .plotting import plot_phot              
 from .periodogram import plot_common_pgram          # external – kept intact
+from .terminal_style import *
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -119,8 +120,8 @@ def process_lightcurves(
                         ok = func(gid)
                     sym, style = ('✓', 'green') if ok else ('✗', 'red')
                 except Exception:
-                    print(f"Exception in {func.__name__} for {gid}:")
-                    print(traceback.format_exc())
+                    print_error(f"Exception in {func.__name__}:", gaia_id, name)
+                    print_error(traceback.format_exc(), gaia_id, name)
                     sym, style = '✗', 'red'
         with lock:
             status[name] = {'symbol': sym, 'style': style}
@@ -163,11 +164,11 @@ def process_lightcurves(
             live.update(make_table())
     else:
         # --- sequential mode without Rich table ---
-        print(f"No ~/.ztfquery found and ZTF not skipped — running sequentially.")
+        print_info(f"No ~/.ztfquery found and ZTF not skipped — running sequentially.", gaia_id)
         for name, (fn, path) in surveys.items():
-            print(f"Fetching {name}...")
+            print_info(f"Fetching {name}...", gaia_id, name)
             fetch(name, fn, path, gaia_id)
-            print(f"  Done: {status[name]['symbol']}")
+            print_info(f"  Done: {status[name]['symbol']}", gaia_id, name)
 
     # ---------------------------------------------------------------- assemble data into Star object
     star = Star(gaia_id)

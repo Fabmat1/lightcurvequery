@@ -159,7 +159,7 @@ def resolve_targets(args) -> List[Tuple[str, SkyCoord | None]]:
 
 # ────────────────────────────────────────────────────────────────────
 def main():
-    check_for_update(current_version="0.0.1", repo="Fabmat1/lightcurvequery")
+    check_for_update(current_version="0.1.1", repo="Fabmat1/lightcurvequery")
 
     parser = parse_arguments()
     args = parser.parse_args()

@@ -8,5 +8,6 @@ fitsio
 ztfquery
 astroquery
 requests
-
+lightkurve
+rich
 

@@ -1,7 +1,17 @@
 """
 Command-line interface – exactly the same behaviour as the old script.
 """
+
 from __future__ import annotations
+import warnings
+
+warnings.filterwarnings(
+    'ignore',
+    message='Warning: the tpfmodel submodule is not available without oktopus installed',
+    category=UserWarning,
+    module='lightkurve.prf'
+)
+
 import sys, argparse
 from typing import List, Tuple
 from astropy import units as u

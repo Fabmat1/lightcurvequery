@@ -11,8 +11,7 @@ as well as accessing BlackGEM data if you are authorized to do so, combines the 
 ## Key features
 * End-to-end pipeline: fetch → quality cut → pre-whiten aliases → period search → plotting.
 * Supports Gaia IDs, equatorial coordinates, or plain text lists.
-* Fully scriptable **command line interface** with sane defaults.
-* Interactive Rich table that shows live download status (falls back to quiet mode on headless systems).
+* Fully scriptable **command line interface**
 * Highly customisable: skip individual surveys, tweak binning, whitening, sample grid, ZTF radius, …
 * Generates three kinds of output ready for inspection or further processing:
 
@@ -30,16 +29,15 @@ pgramplots/                  periodogram overview PDFs
 ```bash
 git clone https://github.com/your-user/lightcurvequery.git
 cd lightcurvequery
-python -m venv venv            # optional
+python -m venv venv
 source venv/bin/activate
 pip install -U pip wheel
-pip install -r requirements.txt   # astropy, astroquery, lightkurve, ztfquery, …
-pip install -e .                 # editable install
+pip install -r requirements.txt 
 ```
 
-Optional extras  
-- ZTF: create a `~/.ztfquery` config (interactive on first run)  
-- ATLAS forced photometry: export your personal API token to use ATLAS photometry (add this to your `.bashrc`, `.zshrc` or similar)  
+For access to ZTF and ATLAS first create an IRSA and ATLAS account.
+- ZTF asks for the IRSA username/password interactively on the first lightcurvequery run
+- For ATLAS export your personal API token (add this to your `.bashrc`, `.zshrc` or similar)  
   `export ATLASFORCED_SECRET_KEY="xxxxxxxxxxxxxxxxxxxxxxxxxxxx"`
   ATLAS tokens can also be stored in `~/.atlaskey`
 
@@ -65,6 +63,8 @@ lightcurvequery XXXXXXXXXXXXXXXXXXX --skip-ztf --skip-atlas --skip-bg \
                          --min-p 0.1 --max-p 5 --no-plot
 ```
 
+Run `lightcurvequery -h` for a full help text.
+
 While the program runs you will see
 
 ```
@@ -77,47 +77,6 @@ Surveying lightcurves for Gaia DR3 XXXXXXXXXXXXXXXXXXX
 ```
 
 where `✓` = downloaded/available, `✗` = no data, `*` = skipped.
-
----
-
-## Command-line reference (abridged)
-
-```
-lightcurvequery  [TARGETS …]              Gaia IDs or coordinates
-
-Input options
-  --coords RA DEC           supply coordinates (deg)
-  --file  path.txt          read IDs from text file
-
-Survey toggles
-  --skip-tess  -t
-  --skip-ztf   -z
-  --skip-atlas -a
-  --skip-gaia  -g
-  --skip-bg    -b
-
-Period search
-  --min-p / --max-p FLOAT   search window in days   (0.05‒50 default)
-  --force-nsamp   INT       override #frequency samples
-  --force-period  FLOAT     skip periodogram and use given period
-
-Processing flags
-  --no-binning              leave raw cadence
-  --no-whitening            turn off alias pre-whitening
-  --no-plot                 do not generate any PDFs
-  --show-plots BOOL         do not show plots in interactive window (default True)
-
-ZTF fine-tuning
-  --ztf-inner-radius 5      arcsec kept around best source
-  --ztf-outer-radius 20     initial query radius
-  --plot-ztf-preview        PDF sky view of all ZTF matches
-
-Photometry filters
-  --include-h               keep ATLAS H-band (off by default)
-  --include-zi              keep ZTF z_i band (off by default)
-```
-
-Run `lightcurvequery -h` for the full help text.
 
 ---
 

@@ -311,7 +311,7 @@ def load_title_template(args) -> TitleTemplate:
 
 # ────────────────────────────────────────────────────────────────────
 def main():
-    check_for_update(current_version="0.1.2", repo="Fabmat1/lightcurvequery")
+    check_for_update(current_version="0.2.0", repo="Fabmat1/lightcurvequery")
 
     parser = parse_arguments()
     args = parser.parse_args()

@@ -28,6 +28,7 @@ from astropy.timeseries import LombScargle, LombScargleMultiband
 from .star import Star
 from .utils import t_colors, ensure_directory_exists, sinusoid
 from .terminal_style import *
+from .plotconfig import *
 
 # ---------------------------------------------------------------------- fonts
 try:
@@ -385,17 +386,20 @@ def calc_pgrams(
     plot=True,
     plot_as_bg=False,
     axs=None,
-    legend_fontsize=8,
+    config: Optional[PlotConfig] = None,
 ):
+    """Calculate periodograms for all lightcurves in a star."""
+    if config is None:
+        config = PlotConfig()
+    
     common_periods, n_samp = None, 0
-    star.filtered_bands = {}  # Track which bands were filtered per telescope
+    star.filtered_bands = {}
 
-    # determine a common period grid
+    # Determine a common period grid
     for tel, lc in star.lightcurves.items():
         if tel in ignore_source:
             continue
         
-        # Get valid bands and mask
         valid_bands, mask, _ = get_valid_bands(lc)
         
         if mask.sum() == 0:
@@ -414,6 +418,7 @@ def calc_pgrams(
             
     if common_periods is None:
         raise RuntimeError("No lightcurves left to analyse")
+    
     common_power = np.ones_like(common_periods)
 
     # Main loop
@@ -424,14 +429,12 @@ def calc_pgrams(
 
         asnp = lambda x: x.to_numpy() if hasattr(x, "to_numpy") else np.asarray(x)
         
-        # Get valid bands and apply filter
         valid_bands, mask, bands_filtered = get_valid_bands(lc)
         
         if mask.sum() == 0:
             print_warning(f"Skipping {tel} - no valid bands", star.gaia_id, tel)
             continue
         
-        # Store info about filtered bands
         if valid_bands is not None:
             all_bands = np.unique(lc[3].to_numpy())
             filtered_out = [b for b in all_bands if b not in valid_bands]
@@ -439,7 +442,6 @@ def calc_pgrams(
                 star.filtered_bands[tel] = filtered_out
                 print_info(f"{tel}: Filtered out bands {filtered_out} (<10 points)", star.gaia_id, tel)
         
-        # Apply mask to all arrays
         t = asnp(lc[0]).astype(float)[mask]
         y = asnp(lc[1]).astype(float)[mask]
         dy = asnp(lc[2]).astype(float)[mask]
@@ -449,7 +451,7 @@ def calc_pgrams(
             bands=bands_filtered,
         )
         
-        # Optional pre-whitening for ZTF / ATLAS / BlackGEM
+        # Optional pre-whitening
         if whitening:
             aliases = (ztf_aliases if tel == "ZTF" else
                        atlas_aliases if tel == "ATLAS" else
@@ -467,6 +469,7 @@ def calc_pgrams(
                     sub = (periods > lo) & (periods < hi)
                     if not sub.any():
                         continue
+                    
                     mp = periods[sub][np.argmax(power[sub])]
                     print_info(f"{tel}: Eliminating {mp:.6f} d ...", star.gaia_id, tel)
 
@@ -501,7 +504,6 @@ def calc_pgrams(
                         C = pars[-1]
                         y[filt_mask] -= (model_t - C)
 
-                    # Update the corresponding rows in the original dataframe
                     lc.loc[mask, 1] = y
 
                     power, periods = fast_pgram(
@@ -513,7 +515,7 @@ def calc_pgrams(
         f = interp1d(periods, power, bounds_error=False, fill_value=0)
         common_power *= f(common_periods)
 
-        # Store individual pgrams
+        # Store individual periodograms
         star.periodograms[tel] = (periods, power)
 
         # Plotting
@@ -521,9 +523,12 @@ def calc_pgrams(
             ax = axs[row] if axs is not None else plt.gca()
             col = t_colors.get(tel, 'k') if not plot_as_bg else 'gray'
             style = '-' if not plot_as_bg else '--'
+            
             ax.plot(periods, power, color=col, linestyle=style,
-                    label=f"{tel} photometry",
-                    zorder=TELESCOPE_ZORDER[tel])
+                   label=f"{tel} photometry",
+                   linewidth=config.periodogram_line_width,
+                   alpha=config.periodogram_line_alpha,
+                   zorder=TELESCOPE_ZORDER[tel])
 
             # Confidence levels
             try:
@@ -531,20 +536,36 @@ def calc_pgrams(
                     [1 - 0.682689, 1 - 0.954499, 1 - 0.997300],
                     1 / min_p, t, y, dy, "standard",
                 )
-                ax.axhline(onesig, ls='--', color='#F7B267', label=r'$1\sigma$ limit')
-                ax.axhline(twosig, ls='--', color='#F4845F', label=r'$2\sigma$ limit')
-                ax.axhline(threesig, ls='--', color='#F25C54', label=r'$3\sigma$ limit')
+                ax.axhline(onesig, ls='--', color='#F7B267',
+                          label=r'$1\sigma$ limit', linewidth=config.hpd_line_width)
+                ax.axhline(twosig, ls='--', color='#F4845F',
+                          label=r'$2\sigma$ limit', linewidth=config.hpd_line_width)
+                ax.axhline(threesig, ls='--', color='#F25C54',
+                          label=r'$3\sigma$ limit', linewidth=config.hpd_line_width)
             except (ValueError, ZeroDivisionError):
                 pass
 
-            # Annotate TESS crowding
-            if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata:
+            # TESS crowding annotation
+            if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata and config.annotation_fontsize > 0:
                 ax.annotate(f"CROWDSAP = {star.metadata['TESS_CROWD']:.2f}",
-                    xy=(0.98, 0.95), xycoords='axes fraction',
-                    ha='right', va='top', fontsize=9,
-                    bbox=dict(facecolor='white', edgecolor='none', alpha=0.6))
+                           xy=(0.98, 0.95), xycoords='axes fraction',
+                           ha='right', va='top', fontsize=config.annotation_fontsize,
+                           bbox=dict(facecolor=config.annotation_bgcolor,
+                                    edgecolor='none', alpha=config.annotation_alpha))
 
-            ax.legend(fontsize=legend_fontsize, loc="best")
+            # Grid and legend
+            if config.grid:
+                ax.grid(config.grid, linestyle=config.grid_linestyle,
+                    color=config.grid_color, alpha=config.grid_alpha)
+            
+            if config.show_legend and config.legend_fontsize > 0:
+                leg = ax.legend(fontsize=config.legend_fontsize, loc="best")
+                leg.set_zorder(TELESCOPE_ZORDER.get(tel, 1) + 1)
+            
+            ax.tick_params(labelsize=config.tick_fontsize)
+            ax.xaxis.offsetText.set_fontsize(config.tick_fontsize)
+            ax.yaxis.offsetText.set_fontsize(config.tick_fontsize)
+            
             row += 1
 
     return common_periods, common_power
@@ -558,30 +579,59 @@ def plot_common_pgram(
     max_p_given=MAX_P,
     nsamp_given=NSAMP,
     whitening=True,
-    title_fontsize=12,
-    label_fontsize=12,
-    legend_fontsize=8,
-    tick_fontsize=10,
-    show_plots=True
+    config: Optional[PlotConfig] = None,
+    show_plots=True,
+    title: Optional[str] = None,
 ):
+    """Plot common periodogram with multiple panels."""
+    if config is None:
+        config = PlotConfig()
+    
     ensure_directory_exists(f"./periodograms/{star.gaia_id}")
     ensure_directory_exists("pgramplots")
     n_pgram_panels = (
         len(star.lightcurves)
         - len([s for s in ignore_source if s in star.lightcurves])
     )
-    nrows_total = n_pgram_panels + 2           # multiplied + zoom
+    nrows_total = n_pgram_panels + 2  # individual + multiplied + zoom
 
-    fig, axes = plt.subplots(
-        nrows=nrows_total,
-        ncols=1,
-        figsize=(8.27, 11.69),
-        dpi=100,
-        sharex=False,          # we wire the sharing manually below
-    )
+    figsize = config.figsize or (8.27, 11.69)
+    
+    # Create figure with constrained_layout parameters if enabled
+    if config.constrained_layout:
+        fig, axes = plt.subplots(
+            nrows=nrows_total,
+            ncols=1,
+            figsize=figsize,
+            dpi=config.dpi,
+            sharex=False,
+            facecolor=config.facecolor,
+            layout="constrained"
+        )
+    else:
+        fig, axes = plt.subplots(
+            nrows=nrows_total,
+            ncols=1,
+            figsize=figsize,
+            dpi=config.dpi,
+            sharex=False,
+            facecolor=config.facecolor
+        )
+    
     axes = np.atleast_1d(axes)
-
-    # ---------------------------------------------------------------- calc & plot individual + multiplied
+    
+    # Manual adjustment if not using constrained_layout
+    if not config.constrained_layout:
+        fig.subplots_adjust(
+            hspace=config.hspace,
+            left=config.left_margin,
+            right=config.right_margin,
+            top=config.top_margin,
+            bottom=config.bottom_margin,
+        )
+    # ================================================================ 
+    # Calculate & plot individual + multiplied periodograms
+    # ================================================================
     common_periods, common_power = calc_pgrams(
         star,
         ignore_source=ignore_source,
@@ -590,27 +640,46 @@ def plot_common_pgram(
         Nsamp=nsamp_given,
         whitening=whitening,
         axs=axes[:n_pgram_panels],
-        legend_fontsize=legend_fontsize,
+        config=config,
     )
 
-    # bottom-most *periodogram* axis (before zoom)
+    # Bottom-most *periodogram* axis (before zoom)
     ax_master = axes[n_pgram_panels]           # == axes[-2]
 
-    # add all telescopes + multiplied pgram share the same x-axis
+    # Add all telescopes + multiplied pgram sharing the same x-axis
     for ax in axes[: n_pgram_panels]:
         ax.sharex(ax_master)
-        ax.tick_params(labelbottom=False)      # remove duplicate labels
+        ax.tick_params(labelbottom=False)
 
-    # multiplied pgram --------------------------------------------------------
-    ax_master.plot(common_periods, common_power, color='#6D23B6',
-                   label="Multiplied periodogram")
+    # ================================================================
+    # Multiplied periodogram
+    # ================================================================
+    ax_master.plot(
+        common_periods, common_power, 
+        color=config.periodogram_line_color,
+        linewidth=config.periodogram_line_width,
+        alpha=config.periodogram_line_alpha,
+        label="Multiplied periodogram"
+    )
     ax_master.set_xscale('log')
     ax_master.set_xlim(common_periods[-1], common_periods[0])
-    ax_master.legend(fontsize=legend_fontsize)
-    ax_master.set_ylabel("Power", fontsize=label_fontsize)
-    ax_master.tick_params(labelsize=tick_fontsize)
+    
+    if config.show_legend and config.legend_fontsize > 0:
+        ax_master.legend(fontsize=config.legend_fontsize)
+    
+    #if config.show_ylabel:
+    #    ax_master.set_ylabel("Power", fontsize=config.label_fontsize)
+    
+    ax_master.tick_params(labelsize=config.tick_fontsize)
+    ax.xaxis.offsetText.set_fontsize(config.tick_fontsize)
+    ax.yaxis.offsetText.set_fontsize(config.tick_fontsize)
+    if config.grid:
+        ax_master.grid(config.grid, linestyle=config.grid_linestyle,
+                    color=config.grid_color, alpha=config.grid_alpha)
 
-    # ---------------------------------------------------------------- zoom panel
+    # ================================================================
+    # Zoom panel
+    # ================================================================
     peak_p, lerr_p, herr_p, (lwin, rwin), _meta = measure_peak_period_HPD(
         common_periods,
         common_power,
@@ -618,44 +687,107 @@ def plot_common_pgram(
         ignore_source=ignore_source,
     )
 
-    # make sure limits run from small → large period (left → right)
+    # Make sure limits run from small → large period (left → right)
     xlo, xhi = sorted([lwin, rwin])
 
     sel = (common_periods >= xlo) & (common_periods <= xhi)
-    axes[-1].plot(common_periods[sel], common_power[sel], color='#6D23B6')
-    axes[-1].axvline(peak_p,  ls='--', color='red',   label='Measured period')
-    axes[-1].axvline(lerr_p, ls='--', color='black', label='1σ HPD bounds')
-    axes[-1].axvline(herr_p, ls='--', color='black')
-    axes[-1].set_xlim(xlo, xhi)                # correct orientation
-    axes[-1].set_xlabel("Period [d]", fontsize=label_fontsize)
-    axes[-1].set_ylabel("Power",      fontsize=label_fontsize)
-    axes[-1].tick_params(labelsize=tick_fontsize)
-    axes[-1].legend(fontsize=legend_fontsize, loc="best")
+    axes[-1].plot(
+        common_periods[sel], common_power[sel],
+        color=config.periodogram_line_color,
+        linewidth=config.periodogram_line_width,
+        alpha=config.periodogram_line_alpha,
+    )
+    axes[-1].axvline(
+        peak_p, ls=config.peak_line_style, 
+        color=config.peak_line_color, 
+        linewidth=config.peak_line_width,
+        alpha=config.peak_line_alpha,
+        label='Measured period'
+    )
+    axes[-1].axvline(
+        lerr_p, ls=config.hpd_line_style, 
+        color=config.hpd_line_color, 
+        linewidth=config.hpd_line_width,
+        alpha=config.hpd_line_alpha,
+        label='1σ HPD bounds'
+    )
+    axes[-1].axvline(
+        herr_p, ls=config.hpd_line_style, 
+        color=config.hpd_line_color, 
+        linewidth=config.hpd_line_width,
+        alpha=config.hpd_line_alpha,
+    )
+    axes[-1].set_xlim(xlo, xhi)
+    
+    # Updated label section
+    if config.show_xlabel:
+        fig.supxlabel(
+            "Period [d]", 
+            fontsize=config.label_fontsize,
+            y=config.xlabel_pad if not config.constrained_layout else None,
+            ha='center'
+        )
+    
+    if config.show_ylabel:
+        fig.supylabel(
+            "Power", 
+            fontsize=config.label_fontsize,
+            x=config.ylabel_pad if not config.constrained_layout else None,
+            ha='center'
+        )
+    
+    axes[-1].tick_params(labelsize=config.tick_fontsize)
+    axes[-1].xaxis.offsetText.set_fontsize(config.tick_fontsize)
+    axes[-1].yaxis.offsetText.set_fontsize(config.tick_fontsize)
+    
+    if config.show_legend and config.legend_fontsize > 0:
+        axes[-1].legend(fontsize=config.legend_fontsize, loc="best")
+    
+    if config.grid:
+        axes[-1].grid(config.grid, linestyle=config.grid_linestyle,
+                    color=config.grid_color, alpha=config.grid_alpha)
 
-    # --------------- period annotation on the zoom panel ---------------------
+    # ================================================================
+    # Period annotation on the zoom panel
+    # ================================================================
     plus  = herr_p - peak_p
     minus = peak_p - lerr_p
     txt   = f"P = {peak_p:.6f} (+{plus:.6f} / -{minus:.6f}) d"
-    axes[-1].annotate(
-        txt,
-        xy=(0.02, 0.95), xycoords='axes fraction',
-        ha='left', va='top', fontsize=9,
-        bbox=dict(facecolor='white', edgecolor='none', alpha=0.6)
-    )
+    if config.annotation_fontsize > 0:
+        axes[-1].annotate(
+            txt,
+            xy=(0.02, 0.95), xycoords='axes fraction',
+            ha='left', va='top', fontsize=config.annotation_fontsize,
+            bbox=dict(facecolor=config.annotation_bgcolor, 
+                    edgecolor='none', alpha=config.annotation_alpha)
+        )
 
-    # ---------------------------------------------------------------- figure cosmetics
-    fig.suptitle(f"Periodograms for Gaia DR3 {star.gaia_id}",
-                 fontsize=title_fontsize)
-    fig.subplots_adjust(hspace=0)      # remove vertical white-space
-    plt.tight_layout()
+    # ================================================================
+    # Figure cosmetics
+    # ================================================================
+    if config.show_title and title:
+        fig.suptitle(
+            title, 
+            fontsize=config.title_fontsize,
+            y=config.title_pad if not config.constrained_layout else None
+        )
+    
+    # Only apply tight_layout if specified and not using constrained_layout
+    if config.tight_layout and not config.constrained_layout:
+        try:
+            plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        except:
+            pass
+    
     plt.savefig(f"pgramplots/{star.gaia_id}_periodograms.pdf",
-                bbox_inches="tight", pad_inches=0)
+                bbox_inches="tight", pad_inches=0.02)
     if show_plots:
         plt.show()
     else:
         plt.close('all')
-        
-    # --------- console output & bookkeeping ----------------------------------
+    # ================================================================
+    # Console output & bookkeeping
+    # ================================================================
     print_success(f"Measured period: "
           f"{peak_p:.6f} (+{plus:.6f} / -{minus:.6f}) d", star.gaia_id)
 

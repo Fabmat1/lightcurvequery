@@ -21,6 +21,7 @@ class Star:
     def __init__(self, gaia_id: str | int):
         self.gaia_id = str(gaia_id)
         self.name = self.gaia_id
+        self.alias = None
 
         # light-curve & periodogram storage
         self.lightcurves: dict[str, pd.DataFrame] = {}
@@ -69,3 +70,7 @@ class Star:
         for tel in targets:
             fn = self._multi_band_pgram if len(self.lightcurves[tel].columns) == 4 else self._single_band_pgram
             fn(tel, min_p, max_p, nsamp)
+
+    def get_display_name(self) -> str:
+        """Get display name for titles/output."""
+        return self.alias or "Gaia DR3 {self.gaia_id}"

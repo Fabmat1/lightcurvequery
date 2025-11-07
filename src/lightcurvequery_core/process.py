@@ -28,12 +28,14 @@ from .fetchers import FETCHERS, getnone
 from .plotting import plot_phot              
 from .periodogram import plot_common_pgram          # external – kept intact
 from .terminal_style import *
+from .plotconfig import *
 
 
 # ────────────────────────────────────────────────────────────────────
 def process_lightcurves(
     gaia_id,
     *,                        # unchanged keyword interface
+    alias: Optional[str] = None,
     skip_tess=False,
     skip_ztf=False,
     skip_atlas=False,
@@ -54,13 +56,17 @@ def process_lightcurves(
     ignore_h: bool = True,
     ignore_zi: bool = True,
     trim_tess: float = 0.0,
+    plot_config: Optional[PlotConfig] = None,
 ):
     """
     Fetch data, build a Star instance, compute periodograms, and create plots.
     Falls back to sequential fetching without Rich table if ~/.ztfquery is missing
     and ZTF is not skipped (to avoid interfering with interactive login prompts).
     """
-
+    if plot_config is None:
+        plot_config = PlotConfig()
+    title_manager = plot_config.get_title_manager()
+        
     # ------------------------------------------------------------------ setup
     base_dir = f"./lightcurves/{gaia_id}"
     ensure_directory_exists(f"./periodograms/{gaia_id}")
@@ -172,6 +178,7 @@ def process_lightcurves(
 
     # ---------------------------------------------------------------- assemble data into Star object
     star = Star(gaia_id)
+    star.alias = alias
 
     for tel, (_, path) in surveys.items():
         if not os.path.isfile(path):
@@ -222,15 +229,19 @@ def process_lightcurves(
             pass
 
     # ---------------------------------------------------------------- period analysis & plotting
+    phot_title = title_manager.get_photometry_title(star)
+    pgram_title = title_manager.get_periodogram_title(star)
     if enable_plotting and star.lightcurves:
         plot_common_pgram(
             star,
+            config=plot_config,
             ignore_source=ignore_source,
             min_p_given=minp,
             max_p_given=maxp,
             nsamp_given=nsamp,
             whitening=not no_whitening,
-            show_plots=show_plots
+            show_plots=show_plots,
+            title=phot_title,
         )
 
     # save periodograms
@@ -245,6 +256,7 @@ def process_lightcurves(
         star.amplitude = star.offset = 0
         plot_phot(
             star,
+            config=plot_config,
             add_rv_plot=False,
             ignore_sources=ignore_source,
             ignoreh=ignore_h,
@@ -252,4 +264,5 @@ def process_lightcurves(
             normalized=True,
             binned=binning,
             show_plots=show_plots,
+            title=pgram_title,
         )

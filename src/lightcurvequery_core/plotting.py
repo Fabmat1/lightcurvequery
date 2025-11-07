@@ -26,23 +26,17 @@ import matplotlib
 
 from .star import Star
 from .terminal_style import *
+from .plotconfig import *
 
 # ---------------------------------------------------------------------- setup
 fm.findSystemFonts(fontpaths=None, fontext='ttf')
 rc('font', family='sans-serif', **{'sans-serif': ['Helvetica']})
-
-# Per-telescope display colours (feel free to edit)
-bandcolors = [
-    "darkred", "navy", "darkgreen", "violet", "magenta",
-    "gold", "salmon", "brown", "black", "lime", "red",
-]
 
 # Default behaviour flags – the values equal those in the old script
 IGNORE_SOURCES: list[str] = []
 IGNOREZI = True
 IGNOREH = True
 DOFIT = False  # whether to run the RV sine-fit in phasefoldplot
-
 
 # ------------------------------------------------------------------ utilities
 def _load_single_band(
@@ -179,25 +173,28 @@ def _load_multi_band(
     return out_x, out_y, out_e, bands
 
 
-# ------------------------------------------------------------------ main plot
-def phasefoldplot(star: Star, N_samples=5000, title_fontsize=14, label_fontsize=14, legend_fontsize=12, tick_fontsize=12, for_phfold=False, ax_for_phfold: plt.Axes = None, do_fit=True, custom_saveloc=None, custom_ylim=None, figsize=None):
-    if not for_phfold and figsize is None:
-        plt.figure(figsize=(6, 4))
-    elif figsize is not None:
-        plt.figure(figsize=figsize)
-    # params, errs = curve_fit(sinusoid,
-    #                          star.times,
-    #                          star.datapoints,
-    #                          p0=[star.amplitude, star.period, star.offset, star.phase],
-    #                          bounds=[
-    #                              [0, star.period*0.99, -np.inf, -1],
-    #                              [np.inf, star.period*1.01, np.inf, 2]
-    #                          ],
-    #                          sigma=star.datapoint_errors,
-    #                          maxfev=100000)
-    # errs = np.sqrt(np.diag(errs))
-
-    # if np.any(~np.isfinite(errs)):
+def phasefoldplot(
+    star: Star,
+    N_samples=5000,
+    config: Optional[PlotConfig] = None,
+    for_phfold=False,
+    ax_for_phfold: plt.Axes = None,
+    do_fit=True,
+    custom_saveloc=None,
+    custom_ylim=None,
+    figsize=None,
+):
+    """Phase-folded RV plot with PlotConfig integration."""
+    if config is None:
+        config = PlotConfig()
+    
+    # Handle figsize precedence: explicit > config > default
+    if figsize is None:
+        figsize = config.figsize or (6, 4)
+    
+    if not for_phfold:
+        plt.figure(figsize=figsize, dpi=config.dpi, facecolor=config.facecolor)
+    
     if do_fit:
         params, errs = curve_fit(sinusoid_wrapper(star.phase),
                                  star.times,
@@ -214,8 +211,8 @@ def phasefoldplot(star: Star, N_samples=5000, title_fontsize=14, label_fontsize=
         params = np.append(params, star.phase)
 
         star.amplitude, star.period, star.offset, star.phase = params
+    
     folded_times = (star.times % star.period) / star.period
-
     folded_times = np.concatenate([folded_times - 1, folded_times])
     folded_times += star.phase
     folded_times[folded_times < -1] += 2
@@ -242,102 +239,140 @@ def phasefoldplot(star: Star, N_samples=5000, title_fontsize=14, label_fontsize=
     for assoc_value in np.unique(folded_associations):
         assoc_mask = folded_associations == assoc_value
         if not for_phfold:
-            plt.errorbar(folded_times[assoc_mask], folded_points[assoc_mask], folded_errors[assoc_mask],
-                         linestyle="none", capsize=3,
-                         color=color_map_err[assoc_value], label=f'{assoc_label_map[assoc_value]}', zorder=9)
-            plt.scatter(folded_times[assoc_mask], folded_points[assoc_mask], 10, marker="o",
-                        color=color_map[assoc_value], label="_nolegend_", zorder=10)
+            plt.errorbar(
+                folded_times[assoc_mask], folded_points[assoc_mask],
+                folded_errors[assoc_mask],
+                linestyle="none", capsize=config.errorbar_capsize,
+                color=color_map_err[assoc_value],
+                label=f'{assoc_label_map[assoc_value]}', zorder=9,
+                elinewidth=config.errorbar_width,
+                markeredgewidth=config.errorbar_width
+            )
+            plt.scatter(folded_times[assoc_mask], folded_points[assoc_mask], 
+                       config.marker_size, marker="o",
+                       color=color_map[assoc_value], label="_nolegend_", zorder=10)
         else:
-            ax_for_phfold.errorbar(folded_times[assoc_mask], folded_points[assoc_mask], folded_errors[assoc_mask],
-                                   linestyle="none", capsize=3,
-                                   color=color_map_err[assoc_value], label=f'{assoc_label_map[assoc_value]}', zorder=9)
-            ax_for_phfold.scatter(folded_times[assoc_mask], folded_points[assoc_mask], 10, marker="o",
-                                  color=color_map[assoc_value], label="_nolegend_", zorder=10)
+            ax_for_phfold.errorbar(
+                folded_times[assoc_mask], folded_points[assoc_mask],
+                folded_errors[assoc_mask],
+                linestyle="none", capsize=config.errorbar_capsize,
+                color=color_map_err[assoc_value],
+                label=f'{assoc_label_map[assoc_value]}', zorder=9,
+                elinewidth=config.errorbar_width,
+                markeredgewidth=config.errorbar_width
+            )
+            ax_for_phfold.scatter(folded_times[assoc_mask], folded_points[assoc_mask],
+                                 config.marker_size, marker="o",
+                                 color=color_map[assoc_value], label="_nolegend_", zorder=10)
 
+    # Plot best fit
     if not for_phfold:
-        plt.plot(t_space, sinusoid(t_space, star.amplitude, 1, star.offset, 0), color="mediumblue", zorder=6, label="Best Fit")
+        plt.plot(
+            t_space, sinusoid(t_space, star.amplitude, 1, star.offset, 0),
+            color=config.fit_line_color, linewidth=config.fit_line_width,
+            alpha=config.fit_line_alpha, zorder=6, label="Best Fit"
+        )
     else:
-        ax_for_phfold.plot(t_space, sinusoid(t_space, star.amplitude, 1, star.offset, 0), color="mediumblue", zorder=6, label="Best Fit")
+        ax_for_phfold.plot(
+            t_space, sinusoid(t_space, star.amplitude, 1, star.offset, 0),
+            color=config.fit_line_color, linewidth=config.fit_line_width,
+            alpha=config.fit_line_alpha, zorder=6, label="Best Fit"
+        )
 
+    # Confidence regions
     if do_fit:
         sinusoids = np.zeros((N_samples, len(t_space)))
         for i in range(N_samples):
             amplitude_varied = star.amplitude + np.random.normal(0, errs[0])
             period_varied = (star.period + np.random.normal(0, errs[1])) / star.period
             offset_varied = star.offset + np.random.normal(0, errs[2])
-
             sinusoids[i, :] = sinusoid(t_space, amplitude_varied, period_varied, offset_varied, 0)
 
-        # Calculate the 16th and 84th percentiles (1-sigma bounds)
         lower_bound = np.percentile(sinusoids, 16, axis=0)
         upper_bound = np.percentile(sinusoids, 84, axis=0)
-
-        # Calculate the 2.5th and 97.5th percentiles (2-sigma bounds)
         lower_bound_2s = np.percentile(sinusoids, 2.5, axis=0)
         upper_bound_2s = np.percentile(sinusoids, 97.5, axis=0)
 
-    # Plot the 68% confidence interval using fill_between
+    # Fill confidence intervals
     if not for_phfold:
         if do_fit:
-            plt.fill_between(t_space, lower_bound, upper_bound, color="lightsteelblue", alpha=0.75, label="1σ region", zorder=2, edgecolor="None")
-            plt.fill_between(t_space, lower_bound_2s, upper_bound_2s, color="lightblue", alpha=0.5, label="2σ region", zorder=2, edgecolor="None")
+            plt.fill_between(t_space, lower_bound, upper_bound,
+                           color="lightsteelblue", alpha=0.75,
+                           label="1σ region", zorder=2, edgecolor="None")
+            plt.fill_between(t_space, lower_bound_2s, upper_bound_2s,
+                           color="lightblue", alpha=0.5,
+                           label="2σ region", zorder=2, edgecolor="None")
     else:
         if do_fit:
-            ax_for_phfold.fill_between(t_space, lower_bound, upper_bound, color="lightsteelblue", alpha=0.75, label="1σ region", zorder=2, edgecolor="None")
-            ax_for_phfold.fill_between(t_space, lower_bound_2s, upper_bound_2s, color="lightblue", alpha=0.5, label="2σ region", zorder=2, edgecolor="None")
+            ax_for_phfold.fill_between(t_space, lower_bound, upper_bound,
+                                      color="lightsteelblue", alpha=0.75,
+                                      label="1σ region", zorder=2, edgecolor="None")
+            ax_for_phfold.fill_between(t_space, lower_bound_2s, upper_bound_2s,
+                                      color="lightblue", alpha=0.5,
+                                      label="2σ region", zorder=2, edgecolor="None")
 
-        ax_for_phfold.set_xlabel("Phase", fontsize=label_fontsize)
-        ax_for_phfold.set_ylabel("Radial Velocity [$kms^{-1}$]", fontsize=label_fontsize)
-        ax_for_phfold.legend(fontsize=legend_fontsize, loc="upper right")
+        if config.show_legend and config.legend_fontsize > 0:
+            ax_for_phfold.legend(fontsize=config.legend_fontsize, loc="upper right")
         ax_for_phfold.set_xlim(-1, 1)
-        ax_for_phfold.grid(True, linestyle="--", color="darkgrey", zorder=1)
-        ax_for_phfold.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+        ax_for_phfold.grid(config.grid, linestyle=config.grid_linestyle,
+                          color=config.grid_color, alpha=config.grid_alpha, zorder=1)
+        ax_for_phfold.tick_params(axis='both', which='major', labelsize=config.tick_fontsize)
+        ax_for_phfold.xaxis.offsetText.set_fontsize(config.tick_fontsize)
+        ax_for_phfold.yaxis.offsetText.set_fontsize(config.tick_fontsize)
         return
 
-    # plt.title(f"Phasefolded RV curve for Gaia DR3 {GAIA_ID}", fontsize=title_fontsize)
-    plt.xlabel("Phase", fontsize=label_fontsize)
-    plt.ylabel("Radial Velocity [$kms^{-1}$]", fontsize=label_fontsize)
-    plt.legend(fontsize=legend_fontsize, loc="lower right")
+    # Standalone plot cosmetics
+    if config.show_legend and config.legend_fontsize > 0:
+        plt.legend(fontsize=config.legend_fontsize, loc="lower right")
+    
     plt.xlim(-1, 1)
-    plt.grid(True, linestyle="--", color="darkgrey", zorder=1)
+    plt.grid(config.grid, linestyle=config.grid_linestyle,
+            color=config.grid_color, alpha=config.grid_alpha, zorder=1)
+    
     if custom_ylim is not None:
         plt.ylim(custom_ylim)
-    plt.xticks(fontsize=tick_fontsize)
-    plt.yticks(fontsize=tick_fontsize)
-    plt.tight_layout()
+    
+    plt.xticks(fontsize=config.tick_fontsize)
+    plt.yticks(fontsize=config.tick_fontsize)
+    plt.gca().xaxis.offsetText.set_fontsize(config.tick_fontsize)
+    plt.gca().yaxis.offsetText.set_fontsize(config.tick_fontsize)
+    
+    if config.tight_layout:
+        plt.tight_layout()
+    
     if custom_saveloc is not None:
         plt.savefig(custom_saveloc, bbox_inches='tight', pad_inches=0)
     else:
-        plt.savefig(f"rvplots/{GAIA_ID}_rv_phasefold.pdf", bbox_inches='tight', pad_inches=0)
-    plt.show()#
+        Path("rvplots").mkdir(exist_ok=True)
+        plt.savefig(f"rvplots/{star.gaia_id}_rv_phasefold.pdf", bbox_inches='tight', pad_inches=0)
+    
+    plt.show()
+    
     if do_fit:
-        np.savetxt(RVVD_PATH + f"/phasefolds/{GAIA_ID}/orbit_fit.txt",
-                   np.array(
-                       [[star.amplitude, star.period, star.offset, star.phase], [*errs]]
-                   ))
-        #print(np.array(
-        #    [[star.amplitude, star.period, star.offset, star.phase], [*errs]]
-        #))
-
+        Path(f"./phasefolds/{star.gaia_id}").mkdir(parents=True, exist_ok=True)
+        np.savetxt(f"./phasefolds/{star.gaia_id}/orbit_fit.txt",
+                   np.array([[star.amplitude, star.period, star.offset, star.phase], [*errs]]))
 
 def plot_phot(
     star: Star,
     *,
     binned: bool = True,
     normalized: bool = True,
+    config: Optional[PlotConfig] = None,
     add_rv_plot: bool = False,
-    title_fontsize: int = 12,
-    label_fontsize: int = 12,
-    legend_fontsize: int = 8,
-    tick_fontsize: int = 10,
     ignore_sources: list[str] | None = None,
     ignorezi: bool = IGNOREZI,
     ignoreh: bool = IGNOREH,
     dofit: bool = DOFIT,
     show_plots: bool = True,
-    min_points: int = 10,  # Add this parameter
+    min_points: int = 10,
+    title: Optional[str] = None, 
 ):
     """Light-curve plotting with filter handling."""
+    # Use default config if none provided
+    if config is None:
+        config = PlotConfig()
+
     # Set-up
     ignore_sources = ignore_sources or []
     for src in ignore_sources:
@@ -392,7 +427,7 @@ def plot_phot(
     if not y_collect:
         raise RuntimeError("No usable photometric data found.")
 
-    # Global limits (rest of the function remains the same)
+    # Global limits
     y_all = np.concatenate(y_collect)
     y_all = y_all[np.isfinite(y_all)]
     
@@ -437,22 +472,47 @@ def plot_phot(
     else:
         height = 11.69
 
-    fig, axes = plt.subplots(
-        nrows=nrows, ncols=1, figsize=(8.27, height), dpi=100,
-        sharex=True, sharey=False
-    )
+    figsize = config.figsize or (8.27, height)
+    
+    # Create figure with constrained_layout parameters if enabled
+    if config.constrained_layout:
+        fig, axes = plt.subplots(
+            nrows=nrows, ncols=1, 
+            figsize=figsize, 
+            dpi=config.dpi,
+            sharex=True, 
+            sharey=False, 
+            facecolor=config.facecolor,
+            layout="constrained"
+        )
+    else:
+        fig, axes = plt.subplots(
+            nrows=nrows, ncols=1, 
+            figsize=figsize, 
+            dpi=config.dpi,
+            sharex=True, 
+            sharey=False, 
+            facecolor=config.facecolor,
+        )
+
     axes = np.atleast_1d(axes)
-    fig.subplots_adjust(hspace=0)
+    
+    # Manual adjustment if not using constrained_layout
+    if not config.constrained_layout:
+        fig.subplots_adjust(
+            hspace=config.hspace,
+            left=config.left_margin,
+            right=config.right_margin,
+            top=config.top_margin,
+            bottom=config.bottom_margin,
+        )
 
     # Optional RV panel
     row = 0
     if add_rv_plot:
         phasefoldplot(
             star,
-            title_fontsize=title_fontsize,
-            label_fontsize=label_fontsize,
-            legend_fontsize=legend_fontsize,
-            tick_fontsize=tick_fontsize,
+            config=config,
             for_phfold=True,
             ax_for_phfold=axes[0],
             do_fit=dofit,
@@ -481,12 +541,18 @@ def plot_phot(
                 lc, star, telescope=tel,
                 binned=binned, normalized=normalized
             )
-            ax.errorbar(x, y, yerr=e, fmt='.', color="darkred", ms=3, zorder=5)
+            ax.errorbar(
+                x, y, yerr=e, fmt=config.marker_style, 
+                color=config.band_colors[0], ms=config.marker_size, 
+                alpha=config.marker_alpha, capsize=config.errorbar_capsize,
+                elinewidth=config.errorbar_width, zorder=5, markeredgewidth=config.errorbar_width
+            )
             label = (f"TESS flux (CROWDSAP={star.metadata['TESS_CROWD']:.2f})"
                      if tel.upper() == "TESS" and "TESS_CROWD" in star.metadata
                      else f"{tel} flux")
-            ax.legend([label], fontsize=legend_fontsize,
-                      loc="lower right").set_zorder(6)
+            if config.show_legend and config.legend_fontsize > 0:
+                ax.legend([label], fontsize=config.legend_fontsize,
+                          loc="lower right").set_zorder(6)
 
         else:
             xs, ys, es, bands = _load_multi_band(
@@ -498,47 +564,85 @@ def plot_phot(
             if len(bands) == 0:
                 continue
                 
+            labels = []
             for i, (x, y, e, band) in enumerate(zip(xs, ys, es, bands)):
                 if (band == "zi" and ignorezi) or (band == "H" and ignoreh):
                     continue
-                col = bandcolors[i % len(bandcolors)]
-                ax.errorbar(x, y, yerr=np.abs(e), fmt='.', color=col,
-                            ms=3, zorder=5,
-                            label=f"{tel} {band} flux")
-            ax.legend(fontsize=legend_fontsize, loc="lower right").set_zorder(6)
+                col = config.band_colors[i % len(config.band_colors)]
+                ax.errorbar(
+                    x, y, yerr=np.abs(e), fmt=config.marker_style, 
+                    color=col, ms=config.marker_size, 
+                    alpha=config.marker_alpha, capsize=config.errorbar_capsize,
+                    elinewidth=config.errorbar_width, zorder=5, markeredgewidth=config.errorbar_width,
+                    label=f"{tel} {band} flux"
+                )
+                labels.append(f"{tel} {band} flux")
+            
+            if config.show_legend and config.legend_fontsize > 0 and labels:
+                ax.legend(fontsize=config.legend_fontsize, loc="lower right").set_zorder(6)
 
         # Cosmetics
-        ax.set_ylabel("Normalized flux", fontsize=label_fontsize)
         ax.set_xlim(-1, 1)
         ax.set_ylim(*ylim_dict[tel])
-        ax.grid(True, linestyle='--', color="darkgrey")
-        ax.tick_params(labelsize=tick_fontsize)
+        if config.grid:
+            ax.grid(config.grid, linestyle=config.grid_linestyle, 
+                    color=config.grid_color, alpha=config.grid_alpha)
+        ax.tick_params(labelsize=config.tick_fontsize)
+        ax.xaxis.offsetText.set_fontsize(config.tick_fontsize)
+        ax.yaxis.offsetText.set_fontsize(config.tick_fontsize)
 
-        if tel in divergent_telescopes:
+        if tel in divergent_telescopes and config.annotation_fontsize > 0:
             ax.annotate("(divergent)", xy=(1.02, 0.5), xycoords='axes fraction',
                         rotation=90, va='center', ha='left',
-                        fontsize=8, color='crimson')
+                        fontsize=config.annotation_fontsize, color='crimson')
 
-        if per_string:
+        if per_string and config.annotation_fontsize > 0:
             ax.annotate(per_string,
                         xy=(0.02, 0.95), xycoords='axes fraction',
-                        ha='left', va='top', fontsize=8,
-                        bbox=dict(facecolor='white',
-                                  edgecolor='none', alpha=0.6))
+                        ha='left', va='top', fontsize=config.annotation_fontsize,
+                        bbox=dict(facecolor=config.annotation_bgcolor,
+                                  edgecolor='none', 
+                                  alpha=config.annotation_alpha))
 
     # Hide duplicate x-tick labels
     for ax in axes[:-1]:
         ax.tick_params(labelbottom=False)
 
-    axes[-1].set_xlabel("Phase", fontsize=label_fontsize)
+    # Add labels with proper padding
+    if config.show_xlabel:
+        fig.supxlabel(
+            config.xlabel, 
+            fontsize=config.label_fontsize,
+            y=config.xlabel_pad if not config.constrained_layout else None,
+            ha='center'
+        )
+    
+    if config.show_ylabel:
+        fig.supylabel(
+            config.ylabel, 
+            fontsize=config.label_fontsize,
+            x=config.ylabel_pad if not config.constrained_layout else None,
+            ha='center'
+        )
 
-    plt.suptitle(f"Lightcurve for Gaia DR3 {star.gaia_id}")
-    plt.tight_layout()
+    if config.show_title and title:
+        fig.suptitle(
+            title, 
+            fontsize=config.title_fontsize,
+            y=config.title_pad if not config.constrained_layout else None
+        )
+    
+    # Only apply tight_layout if specified and not using constrained_layout
+    if config.tight_layout and not config.constrained_layout:
+        try:
+            plt.tight_layout(rect=[0, 0.03, 1, 0.97])  # Leave room for labels
+        except:
+            pass  # Sometimes tight_layout fails with complex layouts
 
     # Save & show
     Path("lcplots").mkdir(exist_ok=True)
     plt.savefig(f"lcplots/{star.gaia_id}_lcplot.pdf",
-                bbox_inches='tight', pad_inches=0)
+                bbox_inches='tight', pad_inches=0.02)
     if show_plots:
         plt.show()
     else:
@@ -562,7 +666,7 @@ def plot_sky_coords_window(gaia_id, zc, coord, *, arcsec_radius=5, figsize=(10, 
     ra_min, ra_max = ra0 - window_size, ra0 + window_size
     dec_min, dec_max = dec0 - window_size, dec0 + window_size
 
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     win = ((zc.ra.deg >= ra_min) & (zc.ra.deg <= ra_max) &
            (zc.dec.deg >= dec_min) & (zc.dec.deg <= dec_max))
     ax.scatter(zc.ra.deg[win], zc.dec.deg[win], c='lightgray', s=20, alpha=0.5)

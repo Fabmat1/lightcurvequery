@@ -1,0 +1,29 @@
+# PlotConfig: Presentation
+# =========================
+# Fonts
+title_fontsize: 18
+label_fontsize: 16
+legend_fontsize: 10
+tick_fontsize: 14
+annotation_fontsize: 12
+# Figure
+figsize: [10, 5.625]
+dpi: 100
+# Grid
+grid: true
+# Markers (photometry)
+marker_size: 5
+errorbar_capsize: 4
+errorbar_width: 1.0
+# Lines (periodogram)
+periodogram_line_width: 2.0
+# Lines (fit lines)
+fit_line_width: 2.5
+# Titles and labels
+show_title: true
+show_legend: true
+show_ylabel: true
+show_xlabel: true
+# Layout
+constrained_layout: true
+tight_layout: false

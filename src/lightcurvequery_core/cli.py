@@ -43,6 +43,9 @@ ALIAS & TITLE CUSTOMIZATION:
     9876543210 TRAPPIST-1
   
   For custom Plot titles use: {gaia_id}, {alias}, {display_name}
+    - gaia_id: Gaia ID for the star
+    - alias: alias name for the star (blank if N/A)
+    - display_name: alias if available, otherwise "Gaia DR3 XXXXXXXXXXXXXXXXXXX"
     Examples:
       --title-template "LC for {display_name}"
       --title-template "Gaia DR3 {gaia_id} ({alias})"

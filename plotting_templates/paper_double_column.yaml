@@ -1,0 +1,33 @@
+# PlotConfig: Paper Double Column
+# ================================
+# Fonts
+title_fontsize: 10
+label_fontsize: 9
+legend_fontsize: 7
+tick_fontsize: 8
+annotation_fontsize: 0
+# Figure
+figsize: [7.09, 4.5]
+dpi: 300
+# Grid
+grid: false
+# Markers (photometry)
+marker_size: 2.5
+errorbar_capsize: 2.5
+errorbar_width: 0.8
+# Lines (periodogram)
+periodogram_line_width: 1.0
+# Lines (fit lines)
+fit_line_width: 1.0
+# Titles and labels
+show_title: false
+show_legend: false
+show_ylabel: true
+show_xlabel: true
+# Layout
+constrained_layout: true
+tight_layout: false
+left_margin: 0.1
+right_margin: 0.95
+top_margin: 0.95
+bottom_margin: 0.1

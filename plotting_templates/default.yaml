@@ -1,0 +1,83 @@
+# PlotConfig Default Settings
+# ============================
+
+# Fonts
+title_fontsize: 12
+label_fontsize: 12
+legend_fontsize: 8
+tick_fontsize: 10
+annotation_fontsize: 8
+
+# Figure
+figsize: null  # Auto-sized
+dpi: 100
+facecolor: "white"
+
+# Grid
+grid: true
+grid_linestyle: "--"
+grid_color: "darkgrey"
+grid_alpha: 1.0
+
+# Markers (photometry)
+marker_size: 3
+marker_alpha: 1.0
+marker_style: "."
+errorbar_capsize: 3
+errorbar_width: 0.5
+
+# Lines (fit lines)
+fit_line_width: 2
+fit_line_color: "mediumblue"
+fit_line_alpha: 1.0
+
+# Lines (periodogram)
+periodogram_line_width: 1.5
+periodogram_line_color: "#6D23B6"
+periodogram_line_alpha: 1.0
+
+# Peak lines
+peak_line_style: "--"
+peak_line_color: "red"
+peak_line_width: 1.5
+peak_line_alpha: 0.8
+
+# HPD bounds lines
+hpd_line_style: "--"
+hpd_line_color: "black"
+hpd_line_width: 1.5
+hpd_line_alpha: 0.8
+
+# Colors
+band_colors:
+  - "darkred"
+  - "navy"
+  - "darkgreen"
+  - "violet"
+  - "magenta"
+  - "gold"
+  - "salmon"
+  - "brown"
+  - "black"
+  - "lime"
+  - "red"
+
+# Telescope overrides
+telescope_overrides: {}
+
+# Titles and labels
+main_title: null
+ylabel: "Normalized flux"
+xlabel: "Phase"
+show_title: true
+show_legend: true
+show_ylabel: true
+show_xlabel: true
+
+# Annotations
+annotation_bgcolor: "white"
+annotation_alpha: 0.6
+
+# Layout
+hspace: 0.0
+tight_layout: true

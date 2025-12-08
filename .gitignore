@@ -7,6 +7,7 @@ other_scripts
 lcplots/*
 mastDownload
 pgramplots/*
+lightcurves/*
 rv_standards
 rvplots
 *.csv

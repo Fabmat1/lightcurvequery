@@ -370,11 +370,15 @@ def getatlaslc(gaia_id):
     #print(f" Got {len(df)} points of ATLAS data!")
 
     # --------------- quality mask (unchanged) ----------------------------
+    with np.errstate(divide='ignore', invalid='ignore'):
+        snr = np.abs(df["uJy"]) / np.abs(df["duJy"])
+        snr = np.nan_to_num(snr, nan=0, posinf=0, neginf=0)
+    
     good = (
          (df["uJy"] > 0) &
          (df["m"] > 0) &
          (df["err"] == 0) &
-         (np.abs(df["uJy"]) / np.abs(df["duJy"]) > 3)
+         (snr > 3)
     #     (df["duJy"] < 1e4) &
     #     (df["x"].between(100, 10460)) &
     #     (df["y"].between(100, 10460)) &

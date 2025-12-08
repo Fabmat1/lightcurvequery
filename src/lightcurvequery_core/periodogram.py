@@ -445,6 +445,23 @@ def calc_pgrams(
         t = asnp(lc[0]).astype(float)[mask]
         y = asnp(lc[1]).astype(float)[mask]
         dy = asnp(lc[2]).astype(float)[mask]
+        if bands_filtered is not None:
+            bands_filtered = bands_filtered.copy()  # If it's a view
+
+        # Remove points with bad uncertainties
+        valid_dy = np.isfinite(dy) & (dy > 0)
+        if not valid_dy.all():
+            n_bad = (~valid_dy).sum()
+            print_warning(f"{tel}: Removing {n_bad} points with invalid uncertainties", star.gaia_id, tel)
+            t = t[valid_dy]
+            y = y[valid_dy]
+            dy = dy[valid_dy]
+            if bands_filtered is not None:
+                bands_filtered = bands_filtered[valid_dy]
+
+        if len(t) < 10:
+            print_warning(f"Skipping {tel} - too few valid points after filtering", star.gaia_id, tel)
+            continue
 
         power, periods = fast_pgram(
             t, y, dy, min_p, max_p, Nsamp,

@@ -14,6 +14,7 @@ warnings.filterwarnings(
 )
 
 import sys, argparse
+import threading
 from typing import List, Tuple
 from pathlib import Path
 from astropy import units as u
@@ -25,11 +26,29 @@ from .update_checker import *
 from .plotconfig import PlotConfig, STYLE_PRESETS
 from .title_manager import TitleTemplate
 
-try:
-    from astroquery.gaia import Gaia
-except ModuleNotFoundError:
-    Gaia = None
+def import_with_timeout(timeout=2):
+    """Import Gaia with a timeout."""
+    result = {'module': None, 'success': False}
+    
+    def import_gaia():
+        try:
+            from astroquery.gaia import Gaia
+            result['module'] = Gaia
+            result['success'] = True
+        except Exception:
+            pass
+    
+    thread = threading.Thread(target=import_gaia, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    
+    return result['module'] if result['success'] else None
 
+# Try importing with timeout
+Gaia = import_with_timeout(timeout=2)
+
+if Gaia is None:
+    print_error("Astroquery's gaia module timed out. Queries from RA/DEC not available. This is not an issue of lightcurvequery.")
 
 # ────────────────────────────────────────────────────────────────────
 def parse_arguments() -> argparse.ArgumentParser:
@@ -213,7 +232,7 @@ def load_gaia_ids_from_file(path) -> List[Tuple[str, Optional[str]]]:
 
 def query_gaia_by_coordinates(coord: SkyCoord) -> str:
     if Gaia is None:
-        print_error("astroquery.gaia not installed – cannot resolve coordinates.")
+        print_error("astroquery.gaia not loaded – cannot resolve coordinates.")
         sys.exit(1)
 
     job = Gaia.cone_search_async(coord, radius=5*u.arcsec)

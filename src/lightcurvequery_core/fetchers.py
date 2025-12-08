@@ -414,6 +414,36 @@ def getbglc(gaia_id):
     # Define current directory path
     current_dir = Path.cwd()
 
+    # Check for the environment variable
+    script_location = os.environ.get("BLACKGEM_QUERYSCRIPT_LOCATION")
+    
+    # If set to DISABLED, silently skip without any warnings
+    if script_location == "DISABLED":
+        return False
+    
+    # If not set, warn the user and provide instructions
+    if script_location is None:
+        print_warning(
+            "BLACKGEM_QUERYSCRIPT_LOCATION environment variable is not set. "
+            "Please set it to the path of query_fullsource.py to enable BlackGEM queries. "
+            "Set it to 'DISABLED' to mute this warning.",
+            gaia_id,
+            "BLACKGEM"
+        )
+        return False
+    
+    # Expand the path (handles ~ and environment variables within the path)
+    script_path = os.path.expanduser(os.path.expandvars(script_location))
+    
+    # Check if the script exists
+    if not os.path.isfile(script_path):
+        print_error(
+            f"BlackGEM query script not found at: {script_path}",
+            gaia_id,
+            "BLACKGEM"
+        )
+        return False
+
     # Define input and output file paths
     lightcurve_dir = current_dir / "lightcurves" / gaia_id
     output_csv = lightcurve_dir / "output.csv"
@@ -422,7 +452,7 @@ def getbglc(gaia_id):
     # Construct the command to run the query script
     command = [
         "python",
-        os.path.expanduser("~/workspace/query_fullsource/query_fullsource.py"),
+        script_path,
         str(output_csv),
         "--source_ids",
         gaia_id,
@@ -436,7 +466,6 @@ def getbglc(gaia_id):
     except subprocess.CalledProcessError:
         print_error(f"You have no access to the BlackGEM database.", gaia_id, "BLACKGEM")
         return False
-
 
     try:
         # Read the generated output.csv
@@ -463,7 +492,6 @@ def getbglc(gaia_id):
             file.write("NaN, NaN, NaN, NaN, NaN, NaN, NaN")
         print_error(f"No BlackGEM data found!", gaia_id, "BLACKGEM")
         return False
-
 
 
 def gettesslc(gaia_id):

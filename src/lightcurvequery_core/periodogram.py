@@ -23,12 +23,22 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import median_filter
 from scipy.optimize import curve_fit
 from scipy.stats import norm
-from astropy.timeseries import LombScargle, LombScargleMultiband
 
 from .star import Star
 from .utils import t_colors, ensure_directory_exists, sinusoid
 from .terminal_style import *
 from .plotconfig import *
+
+# ---------------------------------------- optional C extension (graceful fallback)
+try:
+    from ..c_functions.gls_wrapper import (
+        GLS_AVAILABLE, gls_power, gls_power_multiband,
+    )
+except ImportError:
+    GLS_AVAILABLE = False
+
+if not GLS_AVAILABLE:
+    from astropy.timeseries import LombScargle, LombScargleMultiband
 
 # ---------------------------------------------------------------------- fonts
 try:
@@ -89,12 +99,6 @@ def round_to_significant_digits(val, err):
 
 
 def sinus_fix_period(P):
-    """
-    Return a sine model with fixed period P but free amplitude,
-    phase and constant term:
-
-        f(t) = A * sin( 2π (t + φ) / P ) + C
-    """
     w = 2.0 * np.pi / P
     return lambda t, A, phi, C: A * np.sin(w * (t + phi)) + C
 
@@ -117,30 +121,62 @@ def gen_optimal_samples(t, sample_factor, min_p, max_p, Nsamp):
 
 
 def fast_pgram(t, y, dy, min_p=None, max_p=None, N=None, bands=None):
+    """
+    Compute the Lomb-Scargle periodogram.
+
+    Uses the compiled C extension when available (single-band AND multi-band),
+    otherwise falls back transparently to astropy.
+    """
+    # ---- frequency grid ----
     if min_p is None or max_p is None or N is None:
         f0, df, Nf = gen_optimal_samples(t, 20, min_p, max_p, N)
         freqs = np.linspace(f0, f0 + df * Nf, Nf)
     else:
         freqs = np.flip(1 / np.linspace(min_p, max_p, int(N)))
 
-    # --- Filter out bands with fewer than 10 datapoints ---
+    # Consistent grid parameters for the C extension
+    f0_c = float(freqs[0])
+    df_c = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+    Nf_c = len(freqs)
+
+    # ---- multi-band ----
     if bands is not None:
         bands = np.asarray(bands)
         unique, counts = np.unique(bands, return_counts=True)
         valid_bands = unique[counts >= 10]
         mask = np.isin(bands, valid_bands)
 
-        # Apply mask to all arrays
-        t = t[mask]
-        y = y[mask]
-        dy = dy[mask]
-        bands = bands[mask]
+        t, y, dy, bands = t[mask], y[mask], dy[mask], bands[mask]
 
-        ls = LombScargleMultiband(t, y, dy=dy, bands=bands)
+        if GLS_AVAILABLE:
+            power = gls_power_multiband(
+                t, y, dy, bands,
+                f0=f0_c, df=df_c, Nf=Nf_c,
+                normalization=0,
+                fit_mean=True,
+                center_data=True,
+                nterms=1,
+            )
+        else:
+            ls = LombScargleMultiband(t, y, dy=dy, bands=bands)
+            power = ls.power(freqs, method="fast")
+
+        return power, 1 / freqs
+
+    # ---- single-band ----
+    if GLS_AVAILABLE:
+        power = gls_power(
+            t, y, dy,
+            f0=f0_c, df=df_c, Nf=Nf_c,
+            normalization=0,
+            fit_mean=True,
+            center_data=True,
+            nterms=1,
+        )
     else:
         ls = LombScargle(t, y, dy)
+        power = ls.power(freqs, method="fast")
 
-    power = ls.power(freqs, method="fast")
     return power, 1 / freqs
 
 

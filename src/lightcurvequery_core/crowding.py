@@ -124,7 +124,15 @@ def fetch_tess_preview(gaia_id, coord, outdir) -> bool:
                     markersize=20, markeredgewidth=2)
         except Exception:
             pass
-        ax.set_title(f"TESS Sector {tpf.sector} (≈21″/px)")
+        crowd_txt = ""
+        cf = outdir / "tess_crowdsap.txt"
+        if cf.exists():
+            try:
+                cs = float(open(cf).read().splitlines()[0].strip())
+                crowd_txt = f"   |   CROWDSAP = {cs:.3f}"
+            except Exception:
+                pass
+        ax.set_title(f"TESS Sector {tpf.sector} (≈21″/px){crowd_txt}")
         fig.savefig(outdir / "tess_preview.png", dpi=120, bbox_inches='tight')
         plt.close(fig)
         print_success("TESS preview saved", gaia_id, "CROWDING")

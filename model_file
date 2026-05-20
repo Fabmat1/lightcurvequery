@@ -1,0 +1,101 @@
+q              = 0.68 0.002 0.0001 0 1
+iangle         = 50.0 1 0.1 1 1
+r1             = 0.00187 0.001 0.0001 0 1
+r2             = 0.11625 0.01 0.0001 0 1
+cphi3          = 0.01 0.01 0.01 0 1
+cphi4          = 0.055 0.01 0.01 0 1
+spin1          = 1 0.01 0.01 0 1
+spin2          = 1 0.01 0.01 0 1
+t1             = 10000 1000 10 0 1
+t2             = 35700 1000 10 0 1
+ldc1_1         = 0.15000000000000002 0.02 0.003 0 1
+ldc1_2         = 0 0.02 0.003 0 1
+ldc1_3         = 0 0.02 0.003 0 1
+ldc1_4         = 0 0.02 0.003 0 1
+ldc2_1         = 0.92939183082271548 0.02 0.0001 0 1
+ldc2_2         = 0 0.02 0.0001 0 1
+ldc2_3         = 0 0.02 0.0001 0 1
+ldc2_4         = 0 0.02 0.0001 0 1
+velocity_scale = 409.97 1 0.001 1 1
+beam_factor1   = 1 0.1 0.1 0 1
+beam_factor2   = 1 0.1 0.1 0 1
+
+t0             = 0 1e-05 2e-05 1 1
+period         = 1 0.0001 1e-08 1 1
+pdot           = 0 0.01 1e-05 0 1
+deltat         = 0 0.0001 0.0001 0 1
+gravity_dark1  = 0.08 0.01 1e-06 0 1
+gravity_dark2  = 0.2387 0.01 1e-06 0 1
+absorb         = 1 0.1 0.0001 0 1
+slope          = 0 0.01 1e-05 0 1
+
+quad           = 0 0.01 1e-05 0 1
+
+cube           = 0 0.01 1e-05 0 1
+
+third          = 0 0.01 1e-05 0 1
+
+rdisc1         = 0 0.01 0.0001 0 1
+rdisc2         = 0 0.01 0.02 0 1
+height_disc    = 0 0.01 1e-05 0 1
+beta_disc      = 0 0.01 1e-05 0 1
+temp_disc      = 0 50 40 0 1
+texp_disc      = 0 0.2 0.001 0 1
+lin_limb_disc  = 0 0.02 0.0001 0 1
+quad_limb_disc = 0 0.02 0.0001 0 1
+
+radius_spot    = 0 0.005 0.01 0 1
+length_spot    = 0 0.002 0.005 0 1
+height_spot    = 0 0.005 1e-05 0 1
+expon_spot     = 0 0.2 0.1 0 1
+epow_spot      = 0 0.01 0.01 0 1
+angle_spot     = 0 2 2 0 1
+yaw_spot       = 0 2 2 0 1
+temp_spot      = 0 400 200 0 1
+tilt_spot      = 0 5 2 0 1
+cfrac_spot     = 0 0.02 0.008 0 1
+
+stsp11_long    = 0 0 0 0 0
+stsp11_lat     = 0 0 0 0 0
+stsp11_fwhm    = 0 0 0 0 0
+stsp11_tcen    = 0 0 0 0 0
+
+stsp21_long    = 0 0 0 0 0
+stsp21_lat     = 0 0 0 0 0
+stsp21_fwhm    = 0 0 0 0 0
+stsp21_tcen    = 0 0 0 0 0
+
+delta_phase    = 1e-07
+nlat1f         = 50
+nlat2f         = 150
+nlat1c         = 50
+nlat2c         = 150
+npole          = 1
+nlatfill       = 2
+nlngfill       = 2
+lfudge         = 0
+llo            = 90
+lhi            = -90
+phase1         = 0.1
+phase2         = 0.4
+wavelength     = 547.7
+roche1         = 1
+roche2         = 1
+eclipse1       = 1
+eclipse2       = 1
+glens1         = 0
+use_radii      = 1
+tperiod        = 1
+gdark_bolom1   = 1
+gdark_bolom2   = 1
+mucrit1        = 0
+mucrit2        = 0
+limb1          = Poly
+limb2          = Poly
+mirror         = 0
+add_disc       = 0
+nrad           = 40
+opaque         = 0
+add_spot       = 0
+nspot          = 0
+iscale         = 0

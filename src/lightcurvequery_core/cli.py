@@ -25,6 +25,7 @@ from .terminal_style import *
 from .update_checker import *
 from .plotconfig import PlotConfig, STYLE_PRESETS
 from .title_manager import TitleTemplate
+from .crowding import fetch_crowding_data
 
 def import_with_timeout(timeout=2):
     """Import Gaia with a timeout."""
@@ -153,6 +154,11 @@ EXAMPLE USAGE:
     parser.add_argument('--title-preset', type=str, default='default',
                         choices=['default', 'paper', 'minimal'],
                         help='Preset title configuration')
+    # Crowding previews
+    parser.add_argument('--crowding', action='store_true',
+                        help='Fetch & save preview images (TESS, ZTF, '
+                             'ATLAS-equivalent, Pan-STARRS for Gaia) and the '
+                             'mean TESS CROWDSAP value to lightcurves/{gaia_id}/')
 
     return parser
 
@@ -348,6 +354,20 @@ def main():
         if total > 1:
             display_name = alias or gid
             print_header(f"Target {idx}/{total}: {display_name}")
+
+        if args.crowding:
+            try:
+                fetch_crowding_data(
+                    gaia_id=gid,
+                    coord=coord,
+                    skip_tess=args.skip_tess,
+                    skip_ztf=args.skip_ztf,
+                    skip_atlas=args.skip_atlas,
+                    skip_gaia=args.skip_gaia,
+                )
+            except Exception as exc:
+                print_error(f"Crowding fetch failed for {gid}: {exc}", gid)
+
 
         try:
             process_lightcurves(

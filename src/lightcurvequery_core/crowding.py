@@ -96,24 +96,26 @@ def _reproject_north_up(data, wcs, coord,
                         fov_arcsec: float = COMMON_FOV_ARCSEC,
                         output_pix: int = OUTPUT_DATA_PX,
                         order: str = 'bilinear'):
-    """Reproject to a common north-up / east-left FOV centred on ``coord``."""
+    """Reproject to a common north-up / east-left FOV centred on ``coord``.
+
+    Errors are intentionally **not** swallowed: a misoriented preview is
+    worse than no preview at all, so we let the caller mark the product
+    as failed instead.
+    """
     if data is None or wcs is None:
-        return data, wcs
-    try:
-        from reproject import reproject_interp
-        size  = output_pix
-        cdelt = (fov_arcsec / 3600.0) / size       # deg / pix
-        new_wcs = WCS(naxis=2)
-        new_wcs.wcs.crpix = [size / 2 + 0.5, size / 2 + 0.5]
-        new_wcs.wcs.crval = [coord.ra.deg, coord.dec.deg]
-        new_wcs.wcs.cdelt = [-cdelt, cdelt]
-        new_wcs.wcs.ctype = ['RA---TAN', 'DEC--TAN']
-        new_data, _ = reproject_interp(
-            (data, wcs), new_wcs, shape_out=(size, size), order=order,
-        )
-        return new_data, new_wcs
-    except Exception:
-        return data, wcs
+        raise ValueError("reproject: missing data or WCS")
+    from reproject import reproject_interp
+    size  = output_pix
+    cdelt = (fov_arcsec / 3600.0) / size
+    new_wcs = WCS(naxis=2)
+    new_wcs.wcs.crpix = [size / 2 + 0.5, size / 2 + 0.5]
+    new_wcs.wcs.crval = [coord.ra.deg, coord.dec.deg]
+    new_wcs.wcs.cdelt = [-cdelt, cdelt]
+    new_wcs.wcs.ctype = ['RA---TAN', 'DEC--TAN']
+    new_data, _ = reproject_interp(
+        (data, wcs), new_wcs, shape_out=(size, size), order=order,
+    )
+    return new_data, new_wcs
 
 def _draw_reticle(ax, x, y, nx, ny,
                   color: str = RETICLE_COLOR,
@@ -129,37 +131,37 @@ def _draw_reticle(ax, x, y, nx, ny,
                 color=color, lw=lw, solid_capstyle='round')
 
 
-def _draw_compass(ax, nx, ny, arm_frac: float = 0.08,
+def _draw_compass(ax, *_unused, arm_frac: float = 0.08,
                   pad_frac: float = 0.04):
-    """Two perpendicular arrows in the top-right: blue=N (up), red=E (left)."""
-    import matplotlib.patheffects as pe
-    arm = arm_frac * min(nx, ny)
-    pad = pad_frac * min(nx, ny)
-    x0  = nx - pad - arm
-    y0  = ny - pad - arm
-    halo = [pe.withStroke(linewidth=3.5, foreground='black')]
-    txt_halo = [pe.withStroke(linewidth=2, foreground='black')]
+    """Two perpendicular arrows in the top-right: blue=N (up), red=E (left).
 
-    # North arrow (up) – blue
+    Positioned in axes-fraction coordinates, so it works regardless of
+    whether the underlying axis is in pixels, arcsec, etc.  The extra
+    positional args are kept only for backwards compatibility.
+    """
+    import matplotlib.patheffects as pe
+    arm, pad = arm_frac, pad_frac
+    x0, y0   = 1.0 - pad - arm, 1.0 - pad - arm
+    halo     = [pe.withStroke(linewidth=3.5, foreground='black')]
+    txt_halo = [pe.withStroke(linewidth=2,   foreground='black')]
+
     ax.annotate('', xy=(x0, y0 + arm), xytext=(x0, y0),
+                xycoords='axes fraction', textcoords='axes fraction',
                 arrowprops=dict(arrowstyle='-|>', color=COMPASS_N_COLOR,
                                 lw=2.5, shrinkA=0, shrinkB=0,
-                                mutation_scale=15,
-                                path_effects=halo))
-    ax.text(x0, y0 + arm * 1.08, 'N',
+                                mutation_scale=15, path_effects=halo))
+    ax.text(x0, y0 + arm * 1.08, 'N', transform=ax.transAxes,
             color=COMPASS_N_COLOR, ha='center', va='bottom',
             fontsize=13, fontweight='bold', path_effects=txt_halo)
 
-    # East arrow (left) – red
     ax.annotate('', xy=(x0 - arm, y0), xytext=(x0, y0),
+                xycoords='axes fraction', textcoords='axes fraction',
                 arrowprops=dict(arrowstyle='-|>', color=COMPASS_E_COLOR,
                                 lw=2.5, shrinkA=0, shrinkB=0,
-                                mutation_scale=15,
-                                path_effects=halo))
-    ax.text(x0 - arm * 1.08, y0, 'E',
+                                mutation_scale=15, path_effects=halo))
+    ax.text(x0 - arm * 1.08, y0, 'E', transform=ax.transAxes,
             color=COMPASS_E_COLOR, ha='right', va='center',
             fontsize=13, fontweight='bold', path_effects=txt_halo)
-
 def _stretch_to_unit(arr) -> np.ndarray:
     """ZScale-normalise an array to [0, 1] for RGB compositing."""
     arr = np.asarray(arr, dtype=float)
@@ -167,13 +169,32 @@ def _stretch_to_unit(arr) -> np.ndarray:
     vmin, vmax = ZScaleInterval().get_limits(arr)
     return np.clip((arr - vmin) / (vmax - vmin + 1e-9), 0.0, 1.0)
 
-def _skip_if_exists(path: Path, gaia_id, label: str) -> bool:
-    """Return True (and log) if ``path`` already exists."""
+FAIL_SUFFIX = ".failed"
+
+
+def _skip_if_done(path: Path, gaia_id, label: str) -> Optional[bool]:
+    """Tri-state: ``True`` already-produced, ``False`` previously-failed
+    (do **not** retry), ``None`` go ahead and attempt the fetch."""
     if path.exists():
         print_info(f"{label} already exists – skipping ({path.name})",
                    gaia_id, "CROWDING")
         return True
-    return False
+    marker = path.with_suffix(path.suffix + FAIL_SUFFIX)
+    if marker.exists():
+        print_info(
+            f"{label} previously failed – not retrying "
+            f"(delete {marker.name} to force a new attempt)",
+            gaia_id, "CROWDING")
+        return False
+    return None
+
+
+def _mark_failed(path: Path) -> None:
+    """Drop a ``<name>.failed`` sentinel so the preview is never retried."""
+    try:
+        path.with_suffix(path.suffix + FAIL_SUFFIX).touch()
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Common image display: no axes, no colorbar, target marker, scale bar
@@ -261,29 +282,31 @@ def _display_image(data, wcs, coord, outpath,
 
 def fetch_tess_preview(gaia_id, coord, outdir) -> bool:
     out = outdir / "tess_preview.png"
-    if _skip_if_exists(out, gaia_id, "TESS preview"):
-        return True
+    status = _skip_if_done(out, gaia_id, "TESS preview")
+    if status is not None:
+        return status
     print_info("Fetching TESScut preview ...", gaia_id, "CROWDING")
     try:
         import lightkurve as lk
         sr = lk.search_tesscut(coord)
         if sr is None or len(sr) == 0:
             print_warning("No TESS coverage", gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
-        # need ≥ COMMON_FOV / 21″ pix = 9 pix → 15 px gives margin
         tpf = sr[0].download(cutout_size=15)
         if tpf is None:
             print_warning("TESScut download returned None",
                           gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
         img = np.nanmedian(np.asarray(tpf.flux.value), axis=0)
-        # Use nearest-neighbour so the 21″ pixels stay visible as blocks.
         _display_image(img, tpf.wcs, coord, out,
                        reproject_order='nearest-neighbor')
         print_success("TESS preview saved", gaia_id, "CROWDING")
         return True
     except Exception as e:
         print_warning(f"TESS preview failed: {e}", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
 
 
@@ -387,8 +410,9 @@ def fetch_tess_crowdsap(gaia_id, coord, outdir) -> Optional[float]:
 def fetch_ztf_preview(gaia_id, coord, outdir,
                       size_arcsec: float = COMMON_FOV_ARCSEC + 60) -> bool:
     out = outdir / "ztf_preview.png"
-    if _skip_if_exists(out, gaia_id, "ZTF preview"):
-        return True
+    status = _skip_if_done(out, gaia_id, "ZTF preview")
+    if status is not None:
+        return status
     print_info("Fetching ZTF reference cutout ...", gaia_id, "CROWDING")
     try:
         ra, dec = coord.ra.deg, coord.dec.deg
@@ -401,6 +425,7 @@ def fetch_ztf_preview(gaia_id, coord, outdir,
         if len(lines) < 2:
             print_warning("No ZTF reference image found",
                           gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
         rows = list(csv.DictReader(lines))
         priority = {"zr": 0, "zg": 1, "zi": 2}
@@ -425,21 +450,23 @@ def fetch_ztf_preview(gaia_id, coord, outdir,
         if data is None:
             print_warning("ZTF cutout had no image data",
                           gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
         _display_image(data, wcs, coord, out)
         print_success("ZTF preview saved", gaia_id, "CROWDING")
         return True
     except Exception as e:
         print_warning(f"ZTF preview failed: {e}", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
-
 
 # ---------------- DSS  (BW DSS2 Red — point D) --------------------------------
 def fetch_dss_preview(gaia_id, coord, outdir,
                       radius_arcmin: float = COMMON_FOV_ARCSEC / 60.0) -> bool:
     out = outdir / "dss_preview.png"
-    if _skip_if_exists(out, gaia_id, "DSS preview"):
-        return True
+    status = _skip_if_done(out, gaia_id, "DSS preview")
+    if status is not None:
+        return status
     print_info("Fetching DSS2 Red preview ...", gaia_id, "CROWDING")
     try:
         from astroquery.skyview import SkyView
@@ -458,12 +485,12 @@ def fetch_dss_preview(gaia_id, coord, outdir,
             except Exception:
                 continue
         print_warning("No DSS image available", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
     except Exception as e:
         print_warning(f"DSS preview failed: {e}", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
-
-
 # ===========================================================================
 #                       Pan-STARRS  (y/i/g RGB composite)
 # ===========================================================================
@@ -491,8 +518,9 @@ def _ps1_files(ra, dec, filters="yig"):
 def fetch_ps1_preview(gaia_id, coord, outdir,
                       size_arcmin: float = COMMON_FOV_ARCSEC / 60.0 + 1) -> bool:
     out = outdir / "ps1_preview.png"
-    if _skip_if_exists(out, gaia_id, "Pan-STARRS preview"):
-        return True
+    status = _skip_if_done(out, gaia_id, "Pan-STARRS preview")
+    if status is not None:
+        return status
     print_info("Fetching Pan-STARRS preview ...", gaia_id, "CROWDING")
     try:
         ra, dec = coord.ra.deg, coord.dec.deg
@@ -500,6 +528,7 @@ def fetch_ps1_preview(gaia_id, coord, outdir,
         files = _ps1_files(ra, dec, "yig")
         if not files:
             print_warning("PS1 has no coverage here", gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
         order = ['y', 'i', 'g']
         bands, wcs = [], None
@@ -533,18 +562,22 @@ def fetch_ps1_preview(gaia_id, coord, outdir,
                           gaia_id, "CROWDING")
             return True
         print_warning("PS1 fitscut returned nothing", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
     except Exception as e:
         print_warning(f"PS1 preview failed: {e}", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
 
 # ===========================================================================
 #                              Gaia DR3 (actual)
 # ===========================================================================
-def fetch_gaia_preview(gaia_id, coord, outdir, radius_arcmin: float = 1.0) -> bool:
+def fetch_gaia_preview(gaia_id, coord, outdir,
+                       radius_arcmin: float = 1.6) -> bool:
     out = outdir / "gaia_preview.png"
-    if _skip_if_exists(out, gaia_id, "Gaia preview"):
-        return True
+    status = _skip_if_done(out, gaia_id, "Gaia preview")
+    if status is not None:
+        return status
     print_info("Fetching Gaia DR3 sources ...", gaia_id, "CROWDING")
     try:
         from astroquery.gaia import Gaia
@@ -555,10 +588,10 @@ def fetch_gaia_preview(gaia_id, coord, outdir, radius_arcmin: float = 1.0) -> bo
             "POINT('ICRS', ra, dec),"
             f"CIRCLE('ICRS', {coord.ra.deg}, {coord.dec.deg}, {radius_deg}))"
         )
-        job = Gaia.launch_job(q)
-        tab = job.get_results()
+        tab = Gaia.launch_job(q).get_results()
         if len(tab) == 0:
             print_warning("No Gaia sources in field", gaia_id, "CROWDING")
+            _mark_failed(out)
             return False
 
         # tangent-plane offsets in arcsec (east-LEFT, north-UP)
@@ -571,41 +604,47 @@ def fetch_gaia_preview(gaia_id, coord, outdir, radius_arcmin: float = 1.0) -> bo
         g = np.where(np.isfinite(g), g, 21.0)
         sizes = np.clip(220.0 * 10.0 ** (-0.4 * (g - 13.0)), 4, 600)
 
-        fig, ax = plt.subplots(figsize=(6, 6))
+        lim = COMMON_FOV_ARCSEC / 2.0   # identical FOV to every other preview
+
+        fig = plt.figure(figsize=(FIG_INCHES, FIG_INCHES), dpi=FIG_DPI)
+        ax  = fig.add_axes([0, 0, 1, 1])
         ax.set_facecolor('white')
         ax.scatter(x, y, s=sizes, c='black', alpha=0.85, edgecolor='none')
-        ax.plot(0, 0, '+', color='red', markersize=18, markeredgewidth=2)
-        ax.add_patch(Circle((0, 0), 1.5, edgecolor='red', facecolor='none',
-                             linewidth=1.3, linestyle='--'))
 
-        lim = radius_arcmin * 60.0   # arcsec half-width
-        ax.set_xlim(-lim, lim)       # east-left (x = -d_lon already flips)
+        # target reticle (shared helper, in arcsec axis units centred on 0)
+        _draw_reticle(ax, 0.0, 0.0, 2 * lim, 2 * lim)
+        # compass — works in axes fractions, so the axis units don't matter
+        _draw_compass(ax)
+
+        ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_aspect('equal')
         ax.set_axis_off()
 
-        # scale bar – bottom-left
+        # scale bar (data units == arcsec here)
+        import matplotlib.patheffects as pe
         bar_as = _choose_scale(2 * lim)
         x0, y0 = -lim * 0.90, -lim * 0.85
+        halo   = [pe.withStroke(linewidth=5,   foreground='white')]
+        t_halo = [pe.withStroke(linewidth=2.5, foreground='white')]
         ax.plot([x0, x0 + bar_as], [y0, y0],
-                color='black', lw=3, solid_capstyle='butt')
+                color='black', lw=4, solid_capstyle='butt',
+                path_effects=halo)
         ax.text(x0 + bar_as / 2, y0 + lim * 0.03,
                 _scale_label(bar_as), color='black',
                 ha='center', va='bottom',
-                fontsize=11, fontweight='bold')
+                fontsize=15, fontweight='bold',
+                path_effects=t_halo)
 
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        fig.savefig(outdir / "gaia_preview.png", dpi=140,
-                    bbox_inches='tight', pad_inches=0)
+        fig.savefig(out, dpi=FIG_DPI)   # NO bbox_inches='tight' — keeps 1600×1600
         plt.close(fig)
         print_success(f"Gaia preview saved ({len(tab)} sources)",
                       gaia_id, "CROWDING")
         return True
     except Exception as e:
         print_warning(f"Gaia preview failed: {e}", gaia_id, "CROWDING")
+        _mark_failed(out)
         return False
-
-
 # ===========================================================================
 #                              top-level entry
 # ===========================================================================

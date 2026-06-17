@@ -2,14 +2,16 @@
 crowding.py
 -----------
 Fetch and save preview images of a target's field from multiple, independent
-surveys (TESS, ZTF, Gaia, DSS, Pan-STARRS) to help judge how badly blended /
+surveys (TESS, ZTF, DSS, Pan-STARRS) to help judge how badly blended /
 crowded the source is.  Also computes & caches the mean TESS CROWDSAP metric
 across all available sectors.
+
+Every preview that hits an independent endpoint is fetched concurrently (and,
+at the call site, concurrently with the lightcurve queries) to save wall time.
 
 All outputs go to ``lightcurves/{gaia_id}/``:
     tess_preview.png     – TESScut FFI cutout                  (TESS)
     ztf_preview.png      – ZTF reference image cutout          (ZTF)
-    gaia_preview.png     – Scatter of nearby Gaia DR3 sources  (Gaia)
     dss_preview.png      – DSS2 colour composite               (DSS, independent)
     ps1_preview.png      – Pan-STARRS y/i/g composite          (PS1, independent)
     tess_crowdsap.txt    – Mean CROWDSAP across all downloaded sectors
@@ -19,21 +21,23 @@ from __future__ import annotations
 
 import csv
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import requests
-import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
+from matplotlib.figure import Figure   # OO API only — thread-safe, no pyplot global state
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS, FITSFixedWarning
 from astropy.wcs.utils import proj_plane_pixel_scales
-from astropy.visualization import ZScaleInterval, ImageNormalize
+from astropy.visualization import (
+    ZScaleInterval, ImageNormalize, AsinhStretch, PercentileInterval,
+)
 
 from .terminal_style import (
     print_info, print_success, print_warning, print_error
@@ -132,7 +136,7 @@ def _draw_reticle(ax, x, y, nx, ny,
 
 
 def _draw_compass(ax, *_unused, arm_frac: float = 0.08,
-                  pad_frac: float = 0.04):
+                  pad_frac: float = 0.06):
     """Two perpendicular arrows in the top-right: blue=N (up), red=E (left).
 
     Positioned in axes-fraction coordinates, so it works regardless of
@@ -202,8 +206,18 @@ def _mark_failed(path: Path) -> None:
 def _display_image(data, wcs, coord, outpath,
                    cmap: str = 'gray_r',
                    is_rgb: bool = False,
-                   reproject_order: str = 'bilinear'):
-    """Save a preview at the common FOV, with reticle, compass and scale bar."""
+                   reproject_order: str = 'bilinear',
+                   norm=None):
+    """Save a preview at the common FOV, with reticle, compass and scale bar.
+
+    Uses the matplotlib object-oriented API (``Figure`` directly, no pyplot
+    global state) so several previews can be rendered concurrently from
+    different threads without clobbering each other.
+
+    ``norm`` lets a caller override the default ZScale linear normalisation
+    (e.g. TESS uses an asinh stretch so the bright, heavily-binned core does
+    not crush the whole frame to black).
+    """
     import matplotlib.patheffects as pe
 
     # ---- reproject to the shared FOV (B) ---------------------------------
@@ -226,14 +240,15 @@ def _display_image(data, wcs, coord, outpath,
             )
 
     ny, nx = data.shape[:2]
-    fig = plt.figure(figsize=(FIG_INCHES, FIG_INCHES), dpi=FIG_DPI)
+    fig = Figure(figsize=(FIG_INCHES, FIG_INCHES), dpi=FIG_DPI)
     ax  = fig.add_axes([0, 0, 1, 1])
 
     if is_rgb:
         ax.imshow(data, origin='lower', interpolation='nearest')
     else:
         safe = np.nan_to_num(data, nan=np.nanmedian(data))
-        norm = ImageNormalize(safe, interval=ZScaleInterval())
+        if norm is None:
+            norm = ImageNormalize(safe, interval=ZScaleInterval())
         ax.imshow(safe, origin='lower', cmap=cmap, norm=norm,
                   interpolation='nearest')
 
@@ -274,7 +289,6 @@ def _display_image(data, wcs, coord, outpath,
     ax.set_aspect('equal')
     ax.set_axis_off()
     fig.savefig(outpath, dpi=FIG_DPI)
-    plt.close(fig)
 
 # ===========================================================================
 #                              TESS
@@ -300,8 +314,16 @@ def fetch_tess_preview(gaia_id, coord, outdir) -> bool:
             _mark_failed(out)
             return False
         img = np.nanmedian(np.asarray(tpf.flux.value), axis=0)
+        # TESS FFI pixels are huge & the binned core is very bright; a plain
+        # ZScale linear stretch crushes most of the frame to solid black.
+        # An asinh stretch over a robust percentile range keeps the bright
+        # core dark while preserving the fainter structure / wings.
+        safe = np.nan_to_num(img, nan=np.nanmedian(img))
+        tess_norm = ImageNormalize(
+            safe, interval=PercentileInterval(99.0), stretch=AsinhStretch(),
+        )
         _display_image(img, tpf.wcs, coord, out,
-                       reproject_order='nearest-neighbor')
+                       reproject_order='nearest-neighbor', norm=tess_norm)
         print_success("TESS preview saved", gaia_id, "CROWDING")
         return True
     except Exception as e:
@@ -570,82 +592,6 @@ def fetch_ps1_preview(gaia_id, coord, outdir,
         return False
 
 # ===========================================================================
-#                              Gaia DR3 (actual)
-# ===========================================================================
-def fetch_gaia_preview(gaia_id, coord, outdir,
-                       radius_arcmin: float = 1.6) -> bool:
-    out = outdir / "gaia_preview.png"
-    status = _skip_if_done(out, gaia_id, "Gaia preview")
-    if status is not None:
-        return status
-    print_info("Fetching Gaia DR3 sources ...", gaia_id, "CROWDING")
-    try:
-        from astroquery.gaia import Gaia
-        radius_deg = (radius_arcmin * u.arcmin).to(u.deg).value
-        q = (
-            "SELECT ra, dec, phot_g_mean_mag, source_id "
-            "FROM gaiadr3.gaia_source WHERE 1=CONTAINS("
-            "POINT('ICRS', ra, dec),"
-            f"CIRCLE('ICRS', {coord.ra.deg}, {coord.dec.deg}, {radius_deg}))"
-        )
-        tab = Gaia.launch_job(q).get_results()
-        if len(tab) == 0:
-            print_warning("No Gaia sources in field", gaia_id, "CROWDING")
-            _mark_failed(out)
-            return False
-
-        # tangent-plane offsets in arcsec (east-LEFT, north-UP)
-        src = SkyCoord(tab['ra'], tab['dec'], unit='deg')
-        d_lon, d_lat = coord.spherical_offsets_to(src)
-        x = -d_lon.to(u.arcsec).value
-        y =  d_lat.to(u.arcsec).value
-
-        g = np.array(tab['phot_g_mean_mag'])
-        g = np.where(np.isfinite(g), g, 21.0)
-        sizes = np.clip(220.0 * 10.0 ** (-0.4 * (g - 13.0)), 4, 600)
-
-        lim = COMMON_FOV_ARCSEC / 2.0   # identical FOV to every other preview
-
-        fig = plt.figure(figsize=(FIG_INCHES, FIG_INCHES), dpi=FIG_DPI)
-        ax  = fig.add_axes([0, 0, 1, 1])
-        ax.set_facecolor('white')
-        ax.scatter(x, y, s=sizes, c='black', alpha=0.85, edgecolor='none')
-
-        # target reticle (shared helper, in arcsec axis units centred on 0)
-        _draw_reticle(ax, 0.0, 0.0, 2 * lim, 2 * lim)
-        # compass — works in axes fractions, so the axis units don't matter
-        _draw_compass(ax)
-
-        ax.set_xlim(-lim, lim)
-        ax.set_ylim(-lim, lim)
-        ax.set_aspect('equal')
-        ax.set_axis_off()
-
-        # scale bar (data units == arcsec here)
-        import matplotlib.patheffects as pe
-        bar_as = _choose_scale(2 * lim)
-        x0, y0 = -lim * 0.90, -lim * 0.85
-        halo   = [pe.withStroke(linewidth=5,   foreground='white')]
-        t_halo = [pe.withStroke(linewidth=2.5, foreground='white')]
-        ax.plot([x0, x0 + bar_as], [y0, y0],
-                color='black', lw=4, solid_capstyle='butt',
-                path_effects=halo)
-        ax.text(x0 + bar_as / 2, y0 + lim * 0.03,
-                _scale_label(bar_as), color='black',
-                ha='center', va='bottom',
-                fontsize=15, fontweight='bold',
-                path_effects=t_halo)
-
-        fig.savefig(out, dpi=FIG_DPI)   # NO bbox_inches='tight' — keeps 1600×1600
-        plt.close(fig)
-        print_success(f"Gaia preview saved ({len(tab)} sources)",
-                      gaia_id, "CROWDING")
-        return True
-    except Exception as e:
-        print_warning(f"Gaia preview failed: {e}", gaia_id, "CROWDING")
-        _mark_failed(out)
-        return False
-# ===========================================================================
 #                              top-level entry
 # ===========================================================================
 def fetch_crowding_data(gaia_id,
@@ -672,16 +618,27 @@ def fetch_crowding_data(gaia_id,
 
     results: dict = {}
 
-    # ---- (c) all previews are always attempted, regardless of skips ------
-    results['tess_preview'] = fetch_tess_preview(gaia_id, coord, outdir)
-    results['ztf_preview']  = fetch_ztf_preview(gaia_id, coord, outdir)
-    results['gaia_preview'] = fetch_gaia_preview(gaia_id, coord, outdir)
-    results['dss_preview']  = fetch_dss_preview(gaia_id, coord, outdir)
-    results['ps1_preview']  = fetch_ps1_preview(gaia_id, coord, outdir)
-
+    # ---- every product hits an independent survey endpoint, so fetch them
+    #      all concurrently (rendering uses the thread-safe matplotlib OO API).
+    #      (c) all previews are always attempted, regardless of skips --------
+    tasks = {
+        'tess_preview': (fetch_tess_preview, (gaia_id, coord, outdir)),
+        'ztf_preview':  (fetch_ztf_preview,  (gaia_id, coord, outdir)),
+        'dss_preview':  (fetch_dss_preview,  (gaia_id, coord, outdir)),
+        'ps1_preview':  (fetch_ps1_preview,  (gaia_id, coord, outdir)),
+    }
     # ---- only the catalogue-level metric is gated by a skip flag ---------
     if not skip_tess:
-        results['tess_crowdsap'] = fetch_tess_crowdsap(gaia_id, coord, outdir)
+        tasks['tess_crowdsap'] = (fetch_tess_crowdsap, (gaia_id, coord, outdir))
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {key: pool.submit(fn, *args) for key, (fn, args) in tasks.items()}
+        for key, fut in futures.items():
+            try:
+                results[key] = fut.result()
+            except Exception as e:
+                print_warning(f"{key} failed: {e}", gaia_id, "CROWDING")
+                results[key] = False if key != 'tess_crowdsap' else None
 
     print_success(f"Crowding products written to {outdir}/",
                   gaia_id, "CROWDING")

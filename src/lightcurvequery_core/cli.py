@@ -355,19 +355,27 @@ def main():
             display_name = alias or gid
             print_header(f"Target {idx}/{total}: {display_name}")
 
+        # Kick the crowding previews off in the background so they run
+        # concurrently with the lightcurve queries (each previews different,
+        # independent survey endpoints). Rich's Live redirects stdout, so the
+        # interleaved log lines stay tidy. We join after processing finishes.
+        crowd_thread = None
         if args.crowding:
-            try:
-                fetch_crowding_data(
-                    gaia_id=gid,
-                    coord=coord,
-                    skip_tess=args.skip_tess,
-                    skip_ztf=args.skip_ztf,
-                    skip_atlas=args.skip_atlas,
-                    skip_gaia=args.skip_gaia,
-                )
-            except Exception as exc:
-                print_error(f"Crowding fetch failed for {gid}: {exc}", gid)
+            def _run_crowding(gid=gid, coord=coord):
+                try:
+                    fetch_crowding_data(
+                        gaia_id=gid,
+                        coord=coord,
+                        skip_tess=args.skip_tess,
+                        skip_ztf=args.skip_ztf,
+                        skip_atlas=args.skip_atlas,
+                        skip_gaia=args.skip_gaia,
+                    )
+                except Exception as exc:
+                    print_error(f"Crowding fetch failed for {gid}: {exc}", gid)
 
+            crowd_thread = threading.Thread(target=_run_crowding, daemon=True)
+            crowd_thread.start()
 
         try:
             process_lightcurves(
@@ -399,7 +407,11 @@ def main():
             print_error(f"Error while processing {gid}: {exc}", gid)
             if total == 1:
                 raise
-    
+        finally:
+            # make sure the background previews finish before the next target
+            if crowd_thread is not None:
+                crowd_thread.join()
+
     if total > 1:
         print_success(f"\nCompleted {total} targets.")
 

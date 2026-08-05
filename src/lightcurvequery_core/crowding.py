@@ -42,6 +42,7 @@ from astropy.visualization import (
 from .terminal_style import (
     print_info, print_success, print_warning, print_error
 )
+from .utils import MAST_DOWNLOAD_LOCK, patch_lightkurve_stdout
 
 warnings.filterwarnings("ignore", category=FITSFixedWarning)
 warnings.filterwarnings(
@@ -394,7 +395,10 @@ def fetch_tess_crowdsap(gaia_id, coord, outdir) -> Optional[float]:
                            ["LC", "FAST-LC"])
             prods_lc = prods[mask]
             if len(prods_lc) > 0:
-                downloaded = Observations.download_products(prods_lc)
+                # same files gettesslc pulls, into the same paths – see the
+                # comment on MAST_DOWNLOAD_LOCK.
+                with MAST_DOWNLOAD_LOCK:
+                    downloaded = Observations.download_products(prods_lc)
                 if downloaded is not None:
                     for path in downloaded["Local Path"]:
                         try:

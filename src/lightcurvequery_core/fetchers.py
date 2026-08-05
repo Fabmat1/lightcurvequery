@@ -34,8 +34,14 @@ from .utils import (
     magtoflux,
     magerr_to_fluxerr,
     ensure_directory_exists,
+    patch_lightkurve_stdout,
+    MAST_DOWNLOAD_LOCK,
 )
 from .terminal_style import *
+
+# Has to run before the first fetcher thread starts: lightkurve would otherwise
+# yank sys.stdout out from under the other threads mid-download.
+patch_lightkurve_stdout()
 
 import json
 
@@ -548,8 +554,9 @@ def gettesslc(gaia_id):
     crowdsaps = []
 
     print_info(f" Looking for short cadence data...", gaia_id, "TESS")
-    short_c_lc = Observations.download_products(data, productSubGroupDescription="FAST-LC")
-    
+    with MAST_DOWNLOAD_LOCK:
+        short_c_lc = Observations.download_products(data, productSubGroupDescription="FAST-LC")
+
     used_paths = []
     if short_c_lc is not None:
         for s in short_c_lc["Local Path"]:
@@ -561,7 +568,8 @@ def gettesslc(gaia_id):
             used_paths.append(s.replace("-a_fast-lc.fits", "-s_lc.fits").replace("-a_fast", "-s"))
 
     print_info(f"Looking for long cadence data...", gaia_id, "TESS")
-    long_c_lc = Observations.download_products(data, productSubGroupDescription="LC")
+    with MAST_DOWNLOAD_LOCK:
+        long_c_lc = Observations.download_products(data, productSubGroupDescription="LC")
 
     if long_c_lc is not None:
         for l in long_c_lc["Local Path"]:

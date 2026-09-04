@@ -37,6 +37,7 @@ from .utils import (
     patch_lightkurve_stdout,
     MAST_DOWNLOAD_LOCK,
 )
+from .resolve import resolve_gaia_coord
 from .terminal_style import *
 
 # Has to run before the first fetcher thread starts: lightkurve would otherwise
@@ -119,7 +120,7 @@ def get_tic(gaia_id: int) -> str:
     # or merged between the two releases matches nothing above.  Fall back to
     # the closest TIC entry at the star's position.
     try:
-        coord = SkyCoord.from_name(f"GAIA DR3 {gaia_id}")
+        coord = resolve_gaia_coord(gaia_id, instrument="TESS")
         nearby = Catalogs.query_region(coord, radius=3 * u.arcsec, catalog="TIC")
         if len(nearby) > 0:
             nearby.sort("dstArcSec")
@@ -140,7 +141,7 @@ def getztflc(gaia_id, *, inner_arcsec: float = 5.0, outer_arcsec: float = 20.0,
     from astropy import units as u
     from .plotting import plot_sky_coords_window        # local import avoids circularity
 
-    coord = SkyCoord.from_name(f'GAIA DR3 {gaia_id}')
+    coord = resolve_gaia_coord(gaia_id, instrument="ZTF")
     print_info(f"Getting ZTF data (outer radius {outer_arcsec}″)...", gaia_id, "ZTF")
 
     lcq = lightcurve.LCQuery().from_position(coord.ra.deg, coord.dec.deg, outer_arcsec)
@@ -320,7 +321,7 @@ def getatlaslc(gaia_id):
     # ---------------------------------------------------------------------
     # 2) ——— Submit a new task if necessary ————————————————————————————
     if task_url is None:
-        coord = SkyCoord.from_name(f"GAIA DR3 {gaia_id}")
+        coord = resolve_gaia_coord(gaia_id, instrument="ATLAS")
         while True:
             with requests.Session() as s:
                 resp = s.post(f"{ATLASBASEURL}/queue/",
@@ -655,7 +656,7 @@ def getgaialc(gaia_id):
     photquery = Vizier(
         columns=["Source", "TimeG", "TimeBP", "TimeRP", "FG", "FBP", "FRP", "e_FG", "e_FBP", "e_FRP", "noisyFlag"]
     ).query_region(
-        SkyCoord.from_name(f'GAIA DR3 {gaia_id}'),
+        resolve_gaia_coord(gaia_id, instrument="GAIA"),
         radius=5 * u.arcsec,
         catalog='I/355/epphot'  # I/355/epphot is the designation for the Gaia photometric catalogue on Vizier
     )

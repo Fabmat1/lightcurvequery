@@ -24,6 +24,7 @@ from rich.text import Text
 
 from .star import Star
 from .utils import ensure_directory_exists
+from .resolve import CoordinateResolutionError, register_coord
 from .fetchers import FETCHERS, getnone
 from .plotting import plot_phot              
 from .periodogram import plot_common_pgram          # external – kept intact
@@ -66,7 +67,11 @@ def process_lightcurves(
     if plot_config is None:
         plot_config = PlotConfig()
     title_manager = plot_config.get_title_manager()
-        
+
+    # a position handed to us (e.g. via --coords) is authoritative – seed the
+    # resolver cache so no fetcher has to look the star up at all
+    register_coord(gaia_id, coord)
+
     # ------------------------------------------------------------------ setup
     base_dir = f"./lightcurves/{gaia_id}"
     ensure_directory_exists(f"./periodograms/{gaia_id}")
@@ -125,6 +130,10 @@ def process_lightcurves(
                     else:
                         ok = func(gid)
                     sym, style = ('✓', 'green') if ok else ('✗', 'red')
+                except CoordinateResolutionError as exc:
+                    # every service refused – a traceback adds nothing here
+                    print_error(str(exc), gaia_id, name)
+                    sym, style = '✗', 'red'
                 except Exception:
                     print_error(f"Exception in {func.__name__}:", gaia_id, name)
                     print_error(traceback.format_exc(), gaia_id, name)

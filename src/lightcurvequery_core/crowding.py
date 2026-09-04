@@ -39,10 +39,11 @@ from astropy.visualization import (
     ZScaleInterval, ImageNormalize, AsinhStretch, PercentileInterval,
 )
 
+from .resolve import resolve_gaia_coord
 from .terminal_style import (
     print_info, print_success, print_warning, print_error
 )
-from .utils import MAST_DOWNLOAD_LOCK, patch_lightkurve_stdout
+from .utils import MAST_DOWNLOAD_LOCK
 
 warnings.filterwarnings("ignore", category=FITSFixedWarning)
 warnings.filterwarnings(
@@ -74,9 +75,7 @@ def _ensure_dir(gaia_id) -> Path:
 
 
 def _resolve_coord(gaia_id, coord: Optional[SkyCoord] = None) -> SkyCoord:
-    if coord is not None:
-        return coord
-    return SkyCoord.from_name(f"GAIA DR3 {gaia_id}")
+    return resolve_gaia_coord(gaia_id, coord)
 
 
 def _choose_scale(fov_arcsec: float) -> float:

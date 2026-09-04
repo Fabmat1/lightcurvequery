@@ -17,7 +17,8 @@ rvplots
 *.zip
 !pgramplots/.gitkeep
 !lcplots/.gitkeep
-!requirements.txtmovies/
+!requirements.txt
+movies/
 interactive/
 plot_phasefold_movie.py
 plot_phasefold_interactive.py

@@ -26,6 +26,7 @@ from .update_checker import *
 from .plotconfig import PlotConfig, STYLE_PRESETS
 from .title_manager import TitleTemplate
 from .crowding import fetch_crowding_data
+from .resolve import resolve_source_id
 
 def import_with_timeout(timeout=2):
     """Import Gaia with a timeout."""
@@ -49,7 +50,8 @@ def import_with_timeout(timeout=2):
 Gaia = import_with_timeout(timeout=2)
 
 if Gaia is None:
-    print_error("Astroquery's gaia module timed out. Queries from RA/DEC not available. This is not an issue of lightcurvequery.")
+    print_warning("Astroquery's gaia module timed out (not an issue of lightcurvequery) – "
+                  "falling back to direct Gaia archive TAP queries.")
 
 # ────────────────────────────────────────────────────────────────────
 def parse_arguments() -> argparse.ArgumentParser:
@@ -237,16 +239,24 @@ def load_gaia_ids_from_file(path) -> List[Tuple[str, Optional[str]]]:
 
 
 def query_gaia_by_coordinates(coord: SkyCoord) -> str:
-    if Gaia is None:
-        print_error("astroquery.gaia not loaded – cannot resolve coordinates.")
-        sys.exit(1)
+    if Gaia is not None:
+        job = Gaia.cone_search_async(coord, radius=5*u.arcsec)
+        res = job.get_results()
+        if len(res) == 0:
+            print_error("No Gaia source within 5\".")
+            sys.exit(1)
+        return str(res[0]["SOURCE_ID"])
 
-    job = Gaia.cone_search_async(coord, radius=5*u.arcsec)
-    res = job.get_results()
-    if len(res) == 0:
+    # astroquery.gaia unavailable – talk to the archive's TAP endpoint directly
+    try:
+        gid = resolve_source_id(coord, radius_arcsec=5.0)
+    except Exception as exc:                                   # noqa: BLE001
+        print_error(f"Gaia archive query failed: {exc}")
+        sys.exit(1)
+    if gid is None:
         print_error("No Gaia source within 5\".")
         sys.exit(1)
-    return str(res[0]["SOURCE_ID"])
+    return gid
 
 
 def resolve_targets(args) -> List[Tuple[str, Optional[SkyCoord], Optional[str]]]:

@@ -24,10 +24,9 @@ from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time  # noqa: F401 (used in the untouched code)
 from astroquery.exceptions import InvalidQueryError
-from astroquery.mast import Observations
+from astroquery.mast import Catalogs, Observations, Tesscut
 from astroquery.vizier import Vizier
 from gatspy import periodic                                    # noqa: F401
-import lightkurve as lk
 from ztfquery import lightcurve
 
 from .utils import (
@@ -107,10 +106,26 @@ def get_tic(gaia_id: int) -> str:
             tic_table: Table = result[0]
             tic_id = tic_table["TIC"][0]  # Assume first match is sufficient
             return str(tic_id)
-        else:
-            return "No TIC found for Gaia ID: {}".format(gaia_id)
     except Exception as e:
         return f"Error during query: {str(e)}"
+
+    # TIC-8 stores the Gaia *DR2* source_id, so a DR3 id whose source was split
+    # or merged between the two releases matches nothing above.  Fall back to
+    # the closest TIC entry at the star's position.
+    try:
+        coord = SkyCoord.from_name(f"GAIA DR3 {gaia_id}")
+        nearby = Catalogs.query_region(coord, radius=3 * u.arcsec, catalog="TIC")
+        if len(nearby) > 0:
+            nearby.sort("dstArcSec")
+            tic_id = str(nearby["ID"][0])
+            print_warning(
+                f"No Gaia cross-match in TIC-8; using nearest TIC {tic_id} "
+                f"at {float(nearby['dstArcSec'][0]):.2f}\".", gaia_id, "TESS")
+            return tic_id
+    except Exception as e:
+        return f"Error during query: {str(e)}"
+
+    return "No TIC found for Gaia ID: {}".format(gaia_id)
 
 
 
@@ -560,10 +575,19 @@ def gettesslc(gaia_id):
             crowdsaps.append(cs1)
 
     print_info(f"Looking for FFIs...", gaia_id, "TESS")
-    search_result = lk.search_tesscut(f'Gaia DR3{gaia_id}')
-    print_info(f"{len(search_result)} FFI datasets found!", gaia_id, "TESS")
-    if len(search_result) != 1 and search_result is not None:
-        print_warning(f"Downloading TESS FFIs is not implemented yet, sorry!", gaia_id, "TESS") #TODO: implement downloading
+    # Query TESScut by TIC: MAST only resolves Gaia designations by forwarding
+    # to SIMBAD, so stars missing from SIMBAD used to silently report zero FFIs.
+    # Going through the TESScut API also avoids lightkurve's CAOM cone search,
+    # which stalls for the full astroquery timeout on high-sector-count targets.
+    try:
+        sectors = Tesscut.get_sectors(objectname=f"TIC {tic}")
+    except Exception as e:
+        sectors = None
+        print_warning(f"FFI sector lookup failed: {e}", gaia_id, "TESS")
+    if sectors is not None:
+        print_info(f"{len(sectors)} FFI datasets found!", gaia_id, "TESS")
+        if len(sectors) > 0:
+            print_warning(f"Downloading TESS FFIs is not implemented yet, sorry!", gaia_id, "TESS") #TODO: implement downloading
 
     try:
         times = np.concatenate(times)

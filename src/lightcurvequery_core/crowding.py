@@ -301,19 +301,26 @@ def fetch_tess_preview(gaia_id, coord, outdir) -> bool:
         return status
     print_info("Fetching TESScut preview ...", gaia_id, "CROWDING")
     try:
-        import lightkurve as lk
-        sr = lk.search_tesscut(coord)
-        if sr is None or len(sr) == 0:
+        # Talk to the TESScut API directly rather than going through
+        # ``lightkurve.search_tesscut``: the latter first runs an unrestricted
+        # MAST CAOM cone search, which never completes for targets with many
+        # sectors of coverage (e.g. the continuous viewing zones) and only
+        # gives up after astroquery's 600 s timeout.
+        from astroquery.mast import Tesscut
+        sectors = Tesscut.get_sectors(coordinates=coord)
+        if sectors is None or len(sectors) == 0:
             print_warning("No TESS coverage", gaia_id, "CROWDING")
             _mark_failed(out)
             return False
-        tpf = sr[0].download(cutout_size=15)
-        if tpf is None:
-            print_warning("TESScut download returned None",
+        hdus = Tesscut.get_cutouts(coordinates=coord, size=15,
+                                   sector=int(sectors["sector"][0]))
+        if not hdus:
+            print_warning("TESScut download returned nothing",
                           gaia_id, "CROWDING")
             _mark_failed(out)
             return False
-        img = np.nanmedian(np.asarray(tpf.flux.value), axis=0)
+        cutout = hdus[0]
+        img = np.nanmedian(np.asarray(cutout["PIXELS"].data["FLUX"]), axis=0)
         # TESS FFI pixels are huge & the binned core is very bright; a plain
         # ZScale linear stretch crushes most of the frame to solid black.
         # An asinh stretch over a robust percentile range keeps the bright
@@ -322,7 +329,8 @@ def fetch_tess_preview(gaia_id, coord, outdir) -> bool:
         tess_norm = ImageNormalize(
             safe, interval=PercentileInterval(99.0), stretch=AsinhStretch(),
         )
-        _display_image(img, tpf.wcs, coord, out,
+        # The cutout WCS lives on the APERTURE image extension.
+        _display_image(img, WCS(cutout["APERTURE"].header), coord, out,
                        reproject_order='nearest-neighbor', norm=tess_norm)
         print_success("TESS preview saved", gaia_id, "CROWDING")
         return True

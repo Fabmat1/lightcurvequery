@@ -15,18 +15,17 @@ warnings.filterwarnings(
 
 import sys, argparse
 import threading
-from typing import List, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from .process import process_lightcurves
-from .utils import bcolors
 from .terminal_style import *
-from .update_checker import *
 from .plotconfig import PlotConfig, STYLE_PRESETS
 from .title_manager import TitleTemplate
-from .crowding import fetch_crowding_data
-from .resolve import resolve_source_id
+
+# Heavy dependencies (astropy, astroquery, the processing pipeline, requests)
+# are imported lazily inside the functions that need them, so that
+# `--help` and argument errors return instantly.
+if TYPE_CHECKING:
+    from astropy.coordinates import SkyCoord
 
 def import_with_timeout(timeout=2):
     """Import Gaia with a timeout."""
@@ -46,12 +45,18 @@ def import_with_timeout(timeout=2):
     
     return result['module'] if result['success'] else None
 
-# Try importing with timeout
-Gaia = import_with_timeout(timeout=2)
+_GAIA_UNSET = object()
+_gaia = _GAIA_UNSET
 
-if Gaia is None:
-    print_warning("Astroquery's gaia module timed out (not an issue of lightcurvequery) – "
-                  "falling back to direct Gaia archive TAP queries.")
+def get_gaia():
+    """Return astroquery's Gaia module (imported on first use), or None."""
+    global _gaia
+    if _gaia is _GAIA_UNSET:
+        _gaia = import_with_timeout(timeout=2)
+        if _gaia is None:
+            print_warning("Astroquery's gaia module timed out (not an issue of lightcurvequery) – "
+                          "falling back to direct Gaia archive TAP queries.")
+    return _gaia
 
 # ────────────────────────────────────────────────────────────────────
 def parse_arguments() -> argparse.ArgumentParser:
@@ -239,6 +244,10 @@ def load_gaia_ids_from_file(path) -> List[Tuple[str, Optional[str]]]:
 
 
 def query_gaia_by_coordinates(coord: SkyCoord) -> str:
+    from astropy import units as u
+    from .resolve import resolve_source_id
+
+    Gaia = get_gaia()
     if Gaia is not None:
         job = Gaia.cone_search_async(coord, radius=5*u.arcsec)
         res = job.get_results()
@@ -261,6 +270,9 @@ def query_gaia_by_coordinates(coord: SkyCoord) -> str:
 
 def resolve_targets(args) -> List[Tuple[str, Optional[SkyCoord], Optional[str]]]:
     """Resolve targets to (gaia_id, coord, alias) tuples."""
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord
+
     targets: list[Tuple[str, Optional[SkyCoord], Optional[str]]] = []
 
     # --file
@@ -346,10 +358,14 @@ def load_title_template(args) -> TitleTemplate:
 
 # ────────────────────────────────────────────────────────────────────
 def main():
-    check_for_update(current_version="0.2.2", repo="Fabmat1/lightcurvequery")
-
     parser = parse_arguments()
     args = parser.parse_args()
+
+    from .update_checker import check_for_update
+    from .process import process_lightcurves
+    from .crowding import fetch_crowding_data
+
+    check_for_update(current_version="0.2.2", repo="Fabmat1/lightcurvequery")
 
     targets = resolve_targets(args)
     enable_plotting = not args.no_plot
